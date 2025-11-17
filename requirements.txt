@@ -2,4 +2,5 @@ opencv-python
 mediapipe
 numpy
 jupyter
+gradio
 

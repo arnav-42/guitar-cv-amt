@@ -1,36 +1,70 @@
 # guitar-cv-amt
 Computer Vision for Automatic Music Transcription (Guitar)
 
-## Projects
+## Setup
 
-### 1. MediaPipe Hand Tracking Demo
-A real-time hand and finger tracking demo using MediaPipe. Tracks up to 2 hands simultaneously with finger counting and visual highlights.
+Python 3.8-3.11 required (MediaPipe doesn't support 3.12+).
 
-**Requirements:**
-- Python 3.8-3.11 (MediaPipe doesn't support Python 3.12+ yet)
-- Webcam
-
-**Setup:**
 ```bash
-# Create virtual environment with Python 3.11
+# Create venv
 py -3.11 -m venv venv
 
-# Activate virtual environment
-# Windows PowerShell:
+# Activate (PowerShell)
 .\venv\Scripts\Activate.ps1
-# Windows CMD:
+# Or CMD
 venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+```
 
-# Run the demo
+## Projects
+
+### Hand Tracking
+Real-time finger tracking with MediaPipe. Tracks up to 2 hands with finger counting.
+
+```bash
 python hand_tracking_demo.py
 ```
 
-Press 'q' to quit the demo.
+Press 'q' to quit.
 
-### 2. FFT Chord Detection
-A Jupyter notebook that uses Fast Fourier Transform (FFT) to identify guitar chords from audio, helping resolve ambiguity when computer vision detects finger positions but can't determine if strings are fretted, muted, or open.
+### FFT Chord Detection
+Uses FFT to identify chords from audio when CV can't tell if strings are fretted, muted, or open.
 
-See `fft_chord_candidates.ipynb` for details and usage.
+See `fft_chord_candidates.ipynb` for details.
+
+### Fretboard Segmentation
+Mask R-CNN model for segmenting the fretboard from images.
+
+**Additional requirements:**
+- PyTorch
+- torchvision
+- kagglehub
+- `model_weights.pt` (trained model weights)
+
+```bash
+# Install additional dependencies
+pip install torch torchvision kagglehub matplotlib
+
+# Run segmentation
+python fretboard_segmentation.py
+```
+
+The script downloads the test dataset from Kaggle and runs inference on sample images. Make sure `model_weights.pt` is in the project root.
+
+## Web Demo
+
+Gradio interface combining hand tracking and chord detection.
+
+```bash
+python app.py
+```
+
+Open `http://localhost:7860` in your browser.
+
+**Deploy to Hugging Face:**
+1. Push to GitHub
+2. Create a new Space on [Hugging Face Spaces](https://huggingface.co/spaces)
+3. Connect your repo
+4. Auto-deploys
