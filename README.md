@@ -1,23 +1,6 @@
 # guitar-cv-amt
 Computer Vision for Automatic Music Transcription (Guitar)
 
-## Setup
-
-Python 3.8-3.11 required (MediaPipe doesn't support 3.12+).
-
-```bash
-# Create venv
-py -3.11 -m venv venv
-
-# Activate (PowerShell)
-.\venv\Scripts\Activate.ps1
-# Or CMD
-venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
 ## Projects
 
 ### Hand Tracking
@@ -53,18 +36,11 @@ python fretboard_segmentation.py
 
 The script downloads the test dataset from Kaggle and runs inference on sample images. Make sure `model_weights.pt` is in the project root.
 
-## Web Demo
+## For new members:
 
-Gradio interface combining hand tracking and chord detection.
-
-```bash
-python app.py
-```
-
-Open `http://localhost:7860` in your browser.
-
-**Deploy to Hugging Face:**
-1. Push to GitHub
-2. Create a new Space on [Hugging Face Spaces](https://huggingface.co/spaces)
-3. Connect your repo
-4. Auto-deploys
+Read the three papers and prepare a quick summary of each, focusing specifically on how the authors approached fingertip detection, fretboard detection, string detection, and distingushing between a finger hovering over a string vs pressing down on it.
+- [Duke & Salgian (2019)](https://doi.org/10.1007/978-3-030-33723-0_20)
+  - Note: You will need to sign in with your Purdue account to access this, select Purdue University Main Campus when prompted
+  - The paper starts on page 248 (pdf page 267)
+- [Asmar (2022)](https://publications.polymtl.ca/10470/1/2022_MarkAsmar.pdf)
+- [Ghaleb et al. (2024)](https://arxiv.org/abs/2409.08618)
