@@ -1,112 +1,135 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Guitar CV AMT Demos</title>
-    <meta name="description" content="Interactive notebooks built with Voici" />
-    <style>
-      :root {
-        --bg: #0b0f14;
-        --panel: #141b26;
-        --ink: #e8edf2;
-        --muted: #9aa6b2;
-        --accent: #f5c542;
-        --accent-2: #48c6ef;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        font-family: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
-        color: var(--ink);
-        background:
-          radial-gradient(900px 500px at 15% -10%, #20314f 0%, transparent 60%),
-          radial-gradient(900px 500px at 120% 10%, #1a3c3c 0%, transparent 55%),
-          var(--bg);
-        min-height: 100vh;
-      }
-      header {
-        padding: 56px 8vw 16px;
-      }
-      h1 {
-        margin: 0 0 10px;
-        font-size: clamp(2rem, 3vw, 3.5rem);
-        letter-spacing: -0.02em;
-      }
-      p {
-        margin: 0;
-        color: var(--muted);
-        max-width: 760px;
-        line-height: 1.6;
-      }
-      main {
-        padding: 24px 8vw 56px;
-        display: grid;
-        gap: 16px;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      }
-      .card {
-        background: linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 18px;
-        padding: 18px 18px 20px;
-      }
-      .card h2 {
-        margin: 0 0 8px;
-        font-size: 1.1rem;
-      }
-      .card p {
-        margin: 0;
-        font-size: 0.95rem;
-      }
-      a {
-        color: var(--accent-2);
-        text-decoration: none;
-      }
-      a:hover { text-decoration: underline; }
-      .pill {
-        display: inline-block;
-        font-size: 0.72rem;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: #0b0f14;
-        background: var(--accent);
-        padding: 6px 10px;
-        border-radius: 999px;
-        margin-bottom: 12px;
-        font-weight: 600;
-      }
-      footer {
-        padding: 0 8vw 40px;
-        color: var(--muted);
-        font-size: 0.9rem;
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <div class="pill">Interactive Demos</div>
-      <h1>Guitar CV AMT</h1>
-      <p>
-        Select a demo to launch its interactive notebook (built with Voici).
-      </p>
-    </header>
-    <main>
-      <section class="card">
-        <h2><a href="voici/render/canonical_fretboard.html">Canonical Fretboard</a></h2>
-        <p>Notebook demo: canonical fretboard processing.</p>
-      </section>
-      <section class="card">
-        <h2><a href="voici/render/fft_chord_candidates.html">FFT Chord Candidates</a></h2>
-        <p>Notebook demo: FFT-based chord candidate detection.</p>
-      </section>
-      <section class="card">
-        <h2><a href="voici/tree/">Browse all notebooks</a></h2>
-        <p>File tree for any content in <code>notebooks/</code>.</p>
-      </section>
-    </main>
-    <footer>
-      Built with Voici. GitHub Pages is configured to publish from <code>docs/</code>.
-    </footer>
-  </body>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Guitar CV AMT Demos</title>
+        <meta
+            name="description"
+            content="Interactive notebooks built with Voici"
+        />
+        <style>
+            :root {
+                --bg: #0b0f14;
+                --panel: #141b26;
+                --ink: #e8edf2;
+                --muted: #9aa6b2;
+                --accent: #f5c542;
+                --accent-2: #48c6ef;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                font-family:
+                    "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+                color: var(--ink);
+                background:
+                    radial-gradient(
+                        900px 500px at 15% -10%,
+                        #20314f 0%,
+                        transparent 60%
+                    ),
+                    radial-gradient(
+                        900px 500px at 120% 10%,
+                        #1a3c3c 0%,
+                        transparent 55%
+                    ),
+                    var(--bg);
+                min-height: 100vh;
+            }
+            header {
+                padding: 56px 8vw 16px;
+            }
+            h1 {
+                margin: 0 0 10px;
+                font-size: clamp(2rem, 3vw, 3.5rem);
+                letter-spacing: -0.02em;
+            }
+            p {
+                margin: 0;
+                color: var(--muted);
+                max-width: 760px;
+                line-height: 1.6;
+            }
+            main {
+                padding: 24px 8vw 56px;
+                display: grid;
+                gap: 16px;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            }
+            .card {
+                background: linear-gradient(
+                    160deg,
+                    rgba(255, 255, 255, 0.05),
+                    rgba(255, 255, 255, 0.01)
+                );
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 18px;
+                padding: 18px 18px 20px;
+            }
+            .card h2 {
+                margin: 0 0 8px;
+                font-size: 1.1rem;
+            }
+            .card p {
+                margin: 0;
+                font-size: 0.95rem;
+            }
+            a {
+                color: var(--accent-2);
+                text-decoration: none;
+            }
+            a:hover {
+                text-decoration: underline;
+            }
+            .pill {
+                display: inline-block;
+                font-size: 0.72rem;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: #0b0f14;
+                background: var(--accent);
+                padding: 6px 10px;
+                border-radius: 999px;
+                margin-bottom: 12px;
+                font-weight: 600;
+            }
+            footer {
+                padding: 0 8vw 40px;
+                color: var(--muted);
+                font-size: 0.9rem;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="pill">Interactive Demos</div>
+            <h1>Guitar CV AMT</h1>
+            <p>Select a demo to launch its interactive notebook:</p>
+        </header>
+        <main>
+            <section class="card">
+                <h2>
+                    <a href="voici/render/canonical_fretboard.html"
+                        >Canonical Fretboard</a
+                    >
+                </h2>
+                <p>Notebook demo: canonical fretboard processing.</p>
+            </section>
+            <section class="card">
+                <h2>
+                    <a href="voici/render/fft_chord_candidates.html"
+                        >FFT Chord Candidates</a
+                    >
+                </h2>
+                <p>Notebook demo: FFT-based chord candidate detection.</p>
+            </section>
+            <section class="card">
+                <h2><a href="voici/tree/">Browse all notebooks</a></h2>
+                <p>File tree for any content in <code>notebooks/</code>.</p>
+            </section>
+        </main>
+    </body>
 </html>
