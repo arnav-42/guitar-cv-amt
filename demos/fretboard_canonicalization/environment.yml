@@ -1,0 +1,15 @@
+name: fretboard-demo
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.10
+  - numpy
+  - pillow
+  - matplotlib
+  - opencv
+  - ipywidgets
+  - voila
+  - pytorch
+  - torchvision
+  - cpuonly

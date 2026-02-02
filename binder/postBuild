@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+# Ensure classic notebook widgets are enabled (safe no-op on newer stacks)
+jupyter nbextension enable --py widgetsnbextension --sys-prefix || true
