@@ -1,68 +1,26 @@
 # guitar-cv-amt
 Computer Vision for Automatic Music Transcription (Guitar)
 
-**See demos:** [arnav-42.github.io/guitar-cv-amt](https://arnav-42.github.io/guitar-cv-amt/)
+> [!NOTE]
+> See `scripts/` and `notebooks/` for working code you can install and try out.
+> 
+> `docs/` folder and Github Pages site is also not finalized yet
+> 
+> `model_weights.pt` varies depending on folder
 
-> [!WARNING]
-> All demos under `\demos` are deprecated.
-> See `\scripts` and `\notebooks` for working code you can install and try out.
+## Demos
 
-## Repo layout
-- docs/ : GitHub Pages site root (set Pages to publish from main /docs)
-- src/ : Python demos and scripts
-- notebooks/ : Source .ipynb notebooks
-- deprecated/ : Legacy or frozen demos
-- model_weights.pt : Mask R-CNN weights
+[![Demo - Fretboard Canonicalization](https://img.shields.io/badge/Demo-Fretboard_Canonicalization-2ea44f?style=for-the-badge&logo=Jupyter)](https://nbviewer.org/github/arnav-42/guitar-cv-amt/blob/main/notebooks/canonical_fretboard.ipynb)
 
-## GitHub Pages (Voici)
-This repo publishes a static site from `docs/` with notebook demos built by Voici.
+[![Demo - FFT Chord Candidates](https://img.shields.io/badge/Demo-FFT_Chord_Candidates-2ea44f?style=for-the-badge&logo=Jupyter)](https://nbviewer.org/github/arnav-42/guitar-cv-amt/blob/main/notebooks/fft_chord_candidates.ipynb)
 
-Build the site after adding or updating notebooks:
+## Important Folders
+- `docs/`: GitHub Pages site root (set Pages to publish from main /docs)
+- `scripts/`: Python files and demos
+- `notebooks/`: .ipynb notebooks and demos
+- `deprecated/`: Legacy or frozen demos
 
-```powershell
-& "$env:APPDATA\Python\Python313\Scripts\voici.exe" build --contents notebooks --output-dir docs --disable-addons jupyterlite-xeus
-```
-
-Notes:
-- The build output overwrites `docs/`.
-- Commit `docs/` after each build so GitHub Pages can deploy.
-
-## Projects
-
-### Hand Tracking
-Real-time finger tracking with MediaPipe. Tracks up to 2 hands with finger counting.
-
-```bash
-python src/hand_tracking_demo.py
-```
-
-Press 'q' to quit.
-
-### FFT Chord Detection
-Uses FFT to identify chords from audio when CV can't tell if strings are fretted, muted, or open.
-
-See `notebooks/fft_chord_candidates.ipynb` for details.
-
-### Fretboard Segmentation
-Mask R-CNN model for segmenting the fretboard from images.
-
-**Additional requirements:**
-- PyTorch
-- torchvision
-- kagglehub
-- `model_weights.pt` (trained model weights)
-
-```bash
-# Install additional dependencies
-pip install torch torchvision kagglehub matplotlib
-
-# Run segmentation
-python src/fretboard_segmentation.py
-```
-
-The script downloads the test dataset from Kaggle and runs inference on sample images. Make sure `model_weights.pt` is in the project root.
-
-## For new members:
+## For new members
 
 Read the three papers and prepare a quick summary of each, focusing specifically on how the authors approached fingertip detection, fretboard detection, string detection, and distingushing between a finger hovering over a string vs pressing down on it.
 - [Duke & Salgian (2019)](https://doi.org/10.1007/978-3-030-33723-0_20)
