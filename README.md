@@ -3,6 +3,9 @@ Computer Vision for Automatic Music Transcription (Guitar)
 
 **See demos:** [arnav-42.github.io/guitar-cv-amt](https://arnav-42.github.io/guitar-cv-amt/)
 
+> [!WARNING] All demos under `\demos` are deprecated.
+> See `\scripts` and `\notebooks` for working code you can install and try out.
+
 ## Repo layout
 - docs/ : GitHub Pages site root (set Pages to publish from main /docs)
 - src/ : Python demos and scripts
