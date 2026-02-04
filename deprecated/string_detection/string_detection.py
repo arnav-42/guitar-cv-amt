@@ -1,24 +1,29 @@
+import glob
+import os
+import random
+
+import kagglehub
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torchvision
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 import torchvision.transforms as T
 from PIL import Image, ImageDraw
-import numpy as np
-import kagglehub
-import os
-import glob
-import random
-import matplotlib.pyplot as plt
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+
 
 def get_model_instance_segmentation(num_classes):
-    model = torchvision.models.detection.maskrcnn_resnet50_fpn(weights='DEFAULT')
+    model = torchvision.models.detection.maskrcnn_resnet50_fpn(weights="DEFAULT")
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
     hidden_layer = 256
-    model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, hidden_layer, num_classes)
+    model.roi_heads.mask_predictor = MaskRCNNPredictor(
+        in_features_mask, hidden_layer, num_classes
+    )
     return model
+
 
 def draw_strings_via_pca(draw, mask_bool, color=(0, 255, 255), width=2):
     """
@@ -44,8 +49,8 @@ def draw_strings_via_pca(draw, mask_bool, color=(0, 255, 255), width=2):
 
     # Sort so the largest eigenvalue (longest axis) is first
     sort_idxs = np.argsort(vals)[::-1]
-    major_axis = vecs[:, sort_idxs[0]] # The direction the strings run
-    minor_axis = vecs[:, sort_idxs[1]] # The direction of the width/frets
+    major_axis = vecs[:, sort_idxs[0]]  # The direction the strings run
+    minor_axis = vecs[:, sort_idxs[1]]  # The direction of the width/frets
 
     # Project all points onto the major axis to find top/bottom of neck
     major_proj = np.dot(centered, major_axis)
@@ -60,7 +65,7 @@ def draw_strings_via_pca(draw, mask_bool, color=(0, 255, 255), width=2):
     margin = (w_max - w_min) * 0.1
 
     # Create 6 equidistant offsets along the minor axis
-    string_offsets = np.linspace(w_min + margin/2, w_max - margin/2, 6)
+    string_offsets = np.linspace(w_min + margin / 2, w_max - margin / 2, 6)
 
     for offset in string_offsets:
         # Calculate start point (one end of the neck)
@@ -70,14 +75,16 @@ def draw_strings_via_pca(draw, mask_bool, color=(0, 255, 255), width=2):
         # Calculate end point (other end of the neck)
         p_end = mean + (l_max * major_axis) + (offset * minor_axis)
 
-        draw.line([(p_start[0], p_start[1]), (p_end[0], p_end[1])], fill=color, width=width)
+        draw.line(
+            [(p_start[0], p_start[1]), (p_end[0], p_end[1])], fill=color, width=width
+        )
 
 
 def run_prediction():
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"Using device: {device}")
     num_classes = 3
-    model_weights_path = 'model_weights.pt'
+    model_weights_path = "model_weights.pt"
 
     model = get_model_instance_segmentation(num_classes)
     if os.path.exists(model_weights_path):
@@ -91,9 +98,15 @@ def run_prediction():
 
     print("\nSetting up test data...")
     try:
-        base_path = kagglehub.dataset_download("jacksonlightfoot/guitar-transcription-dataset")
-        image_folder_path = os.path.join(base_path, 'fretboard_dataset', 'fretboard_dataset', 'fretboard_frames_test')
-        image_files = glob.glob(os.path.join(image_folder_path, '*.png')) + glob.glob(os.path.join(image_folder_path, '*.jpg'))
+        base_path = kagglehub.dataset_download(
+            "jacksonlightfoot/guitar-transcription-dataset"
+        )
+        image_folder_path = os.path.join(
+            base_path, "fretboard_dataset", "fretboard_dataset", "fretboard_frames_test"
+        )
+        image_files = glob.glob(os.path.join(image_folder_path, "*.png")) + glob.glob(
+            os.path.join(image_folder_path, "*.jpg")
+        )
     except Exception as e:
         print(f"Dataset error: {e}")
         return
@@ -114,14 +127,16 @@ def run_prediction():
             prediction = model([img_tensor.to(device)])
 
         # Process results
-        pred_scores = prediction[0]['scores'].cpu().numpy()
-        pred_masks = prediction[0]['masks'].cpu().numpy()
+        pred_scores = prediction[0]["scores"].cpu().numpy()
+        pred_masks = prediction[0]["masks"].cpu().numpy()
 
         # Filter by confidence
-        high_conf_indices = [i for i, score in enumerate(pred_scores) if score > confidence_threshold]
+        high_conf_indices = [
+            i for i, score in enumerate(pred_scores) if score > confidence_threshold
+        ]
 
         img_draw = img.copy()
-        draw = ImageDraw.Draw(img_draw, 'RGBA')
+        draw = ImageDraw.Draw(img_draw, "RGBA")
 
         print(f"Processing {os.path.basename(image_path)}...")
 
@@ -133,8 +148,9 @@ def run_prediction():
 
         plt.figure(figsize=(12, 8))
         plt.imshow(img_draw)
-        plt.axis('off')
+        plt.axis("off")
         plt.show()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     run_prediction()
