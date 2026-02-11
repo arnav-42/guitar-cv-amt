@@ -1,5 +1,5 @@
 # guitar-cv-amt
-Computer Vision for Automatic Music Transcription (Guitar)
+This repository contains the ongoing work of the computer vision team of the [AIM Lab's](https://ai4musicians.org/) automatic music transcription group.
 
 > [!NOTE]
 > See `scripts/` and `notebooks/` for working code you can install and try out.
