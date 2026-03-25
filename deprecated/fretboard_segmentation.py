@@ -38,7 +38,7 @@ def run_prediction():
 
     # We have 2 classes: background and fretboard
     num_classes = 2
-    model_weights_path = 'model_weights.pt'
+    model_weights_path = 'model_weights_new.pt'
 
     # --- 2. Load Model ---
     model = get_model_instance_segmentation(num_classes)
