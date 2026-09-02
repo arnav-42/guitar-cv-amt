@@ -58,12 +58,12 @@
 - **Augmentation**: mosaic, horizontal flip, HSV jitter, ±5° rotation, 0.5× scale
 - **Device**: Apple M2 (MPS), ~45s/epoch
 - **Best val Mask mAP50-95**: 0.947 (epoch 50)
-- **Weights**: [yolo_weights_best.pt](file:///Users/Admin/vip/fretboard_masking/guitar-cv-amt/yolo_weights_best.pt) (6.4 MB)
+- **Weights**: [yolo_weights_best.pt](yolo_weights_best.pt) (6.4 MB)
 
 ## Files
 
-- [evaluation_results.csv](file:///Users/Admin/vip/fretboard_masking/guitar-cv-amt/evaluation_results.csv) — Full results (24 rows: 6 methods × 2 splits × 2 models)
-- [yolo_weights_best.pt](file:///Users/Admin/vip/fretboard_masking/guitar-cv-amt/yolo_weights_best.pt) — Trained YOLO model
-- [train_yolo.py](file:///Users/Admin/vip/fretboard_masking/guitar-cv-amt/train_yolo.py) — Training script
-- [convert_coco_to_yolo.py](file:///Users/Admin/vip/fretboard_masking/guitar-cv-amt/convert_coco_to_yolo.py) — Dataset converter
-- [evaluate_all.py](file:///Users/Admin/vip/fretboard_masking/guitar-cv-amt/evaluate_all.py) — Updated eval pipeline (supports `--yolo-weights`)
+- [evaluation_results.csv](evaluation_results.csv) — Full results (24 rows: 6 methods × 2 splits × 2 models)
+- [yolo_weights_best.pt](yolo_weights_best.pt) — Trained YOLO model
+- [train_yolo.py](train_yolo.py) — Training script
+- [convert_coco_to_yolo.py](convert_coco_to_yolo.py) — Dataset converter
+- [evaluate_all.py](evaluate_all.py) — Updated evaluation pipeline (supports `--yolo-weights`)

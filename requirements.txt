@@ -1,6 +1,17 @@
+# Core tools, notebooks, and interactive demos
 opencv-python
 mediapipe
 numpy
 jupyter
 gradio
 voici
+
+# Active fretboard segmentation pipeline
+Pillow
+PyYAML
+torch
+torchvision
+pycocotools
+ultralytics
+pandas
+scipy

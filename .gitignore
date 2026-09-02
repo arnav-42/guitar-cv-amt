@@ -25,3 +25,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Local pipeline data and generated training artifacts
+pipeline/dataset/
+pipeline/dataset_yolo/
+pipeline/yolo_runs/
+
