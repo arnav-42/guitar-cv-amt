@@ -128,7 +128,37 @@ python pipeline/fret_detect_yolo.py \
   --visualize --output result.png
 ```
 
-### 4. Evaluate the approaches
+### 4. Explore interactively
+
+Launch the Gradio interface with:
+
+```bash
+python pipeline/gradio_demo.py
+```
+
+The demo exposes the annotated input image, the top-down rectified fretboard,
+and the machine-readable JSON detection result. The same outputs are available
+from the command-line detector; use `--json` for JSON output and
+`--rectified-output` to save the warped fretboard image:
+
+```bash
+python pipeline/fret_detect_yolo.py \
+  --image path/to/guitar.jpg \
+  --json results.json
+python pipeline/fret_detect_yolo.py \
+  --image path/to/guitar.jpg \
+  --rectified-output rectified.png \
+  --visualize --output annotated.png
+
+# Save all three CLI outputs in one run: annotated image, rectified image, JSON.
+python pipeline/fret_detect_yolo.py \
+  --image path/to/guitar.jpg \
+  --visualize --output annotated.png \
+  --rectified-output rectified.png \
+  --json results.json
+```
+
+### 5. Evaluate the approaches
 
 [`pipeline/evaluate_all.py`](pipeline/evaluate_all.py) measures segmentation quality and runs six fret-line estimation methods on the available `valid` and `test` splits. It always evaluates a Mask R-CNN checkpoint and can optionally evaluate YOLO as well:
 

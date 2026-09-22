@@ -15,3 +15,6 @@ pycocotools
 ultralytics
 pandas
 scipy
+
+# Tests
+pytest

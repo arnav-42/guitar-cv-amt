@@ -12,7 +12,10 @@ Usage:
   python fret_detect_yolo.py --image path/to/guitar.jpg --visualize
 """
 
-import os, sys, argparse
+import argparse
+import json
+import os
+import sys
 import numpy as np
 import cv2
 from PIL import Image
@@ -40,10 +43,10 @@ def load_yolo_model(weights_path):
     return YOLO(weights_path)
 
 
-def predict_mask(model, img_pil):
+def predict_mask(model, img_pil, conf=YOLO_CONF_THRESH):
     """YOLO inference → cleaned binary mask (uint8, 0/255)."""
     W, H = img_pil.size
-    results = model.predict(img_pil, conf=YOLO_CONF_THRESH, verbose=False)
+    results = model.predict(img_pil, conf=conf, verbose=False)
     combined = np.zeros((H, W), dtype=np.uint8)
     if results and results[0].masks is not None:
         for mask_data in results[0].masks.data:
@@ -195,32 +198,247 @@ def detect_frets(mask):
     return lines
 
 
+def _as_rgb_array(image):
+    """Convert a PIL image or numpy image to an RGB uint8 array."""
+    if isinstance(image, Image.Image):
+        return np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
+    if isinstance(image, (str, os.PathLike)):
+        with Image.open(image) as loaded:
+            return np.asarray(loaded.convert("RGB"), dtype=np.uint8).copy()
+
+    arr = np.asarray(image)
+    if arr.ndim == 2:
+        arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2RGB)
+    elif arr.ndim == 3 and arr.shape[2] == 4:
+        arr = arr[:, :, :3]
+    elif arr.ndim != 3 or arr.shape[2] != 3:
+        raise ValueError("image must be a PIL image or an HxW/HxWx3/HxWx4 numpy array")
+    if arr.dtype != np.uint8:
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
+    return arr.copy()
+
+
+def _as_mask_array(mask):
+    """Convert a mask-like value to a binary uint8 mask (0/255)."""
+    if isinstance(mask, Image.Image):
+        mask = np.asarray(mask.convert("L"))
+    arr = np.asarray(mask)
+    if arr.ndim != 2:
+        raise ValueError("mask must be a single-channel HxW array")
+    return np.where(arr > 0, 255, 0).astype(np.uint8)
+
+
+def create_annotated_output(image, mask, fret_lines, *, as_pil=False):
+    """Create an annotated RGB image in memory.
+
+    ``image`` may be a PIL image or an RGB numpy array (a path is also
+    accepted for convenience).  The returned value is an RGB ``uint8`` array
+    by default, or a PIL image when ``as_pil=True``.  This function never
+    writes a file or opens a display window.
+    """
+    rgb = _as_rgb_array(image)
+    binary_mask = _as_mask_array(mask)
+    if binary_mask.shape != rgb.shape[:2]:
+        raise ValueError(
+            f"mask dimensions {binary_mask.shape[::-1]} do not match image "
+            f"dimensions {rgb.shape[1::-1]}"
+        )
+
+    overlay = rgb.copy()
+    overlay[binary_mask > 0] = (0, 200, 0)
+    annotated = cv2.addWeighted(overlay, 0.3, rgb, 0.7, 0)
+    for i, (p1, p2) in enumerate(fret_lines):
+        start = (int(round(float(p1[0]))), int(round(float(p1[1]))))
+        end = (int(round(float(p2[0]))), int(round(float(p2[1]))))
+        cv2.line(annotated, start, end, (255, 0, 0), 2)
+        mid_x = int(round((float(p1[0]) + float(p2[0])) / 2))
+        mid_y = int(round((float(p1[1]) + float(p2[1])) / 2))
+        cv2.putText(annotated, str(i + 1), (mid_x - 5, mid_y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
+
+    if as_pil:
+        return Image.fromarray(annotated, mode="RGB")
+    return annotated
+
+
+def rectify_perspective(image_or_mask, mask=None, output_size=(1024, 256), *,
+                        return_details=False):
+    """Warp a detected fretboard to a clean rectangle using PCA corners.
+
+    Pass ``(image, mask)`` to warp an RGB image, or pass just ``mask`` to
+    obtain a warped mask.  ``output_size`` is ``(width, height)``.  A return
+    value of ``None`` indicates that PCA could not estimate four corners.  If
+    ``return_details=True``, a dictionary containing the warped source,
+    warped mask, source corners, and transform matrix is returned instead.
+    """
+    if mask is None:
+        mask_arr = _as_mask_array(image_or_mask)
+        source = mask_arr
+        source_is_mask = True
+    else:
+        mask_arr = _as_mask_array(mask)
+        source = _as_rgb_array(image_or_mask)
+        if source.shape[:2] != mask_arr.shape:
+            raise ValueError(
+                f"mask dimensions {mask_arr.shape[::-1]} do not match image "
+                f"dimensions {source.shape[1::-1]}"
+            )
+        source_is_mask = False
+
+    try:
+        out_width, out_height = (int(output_size[0]), int(output_size[1]))
+    except (TypeError, ValueError, IndexError):
+        raise ValueError("output_size must be a (width, height) pair") from None
+    if out_width <= 0 or out_height <= 0:
+        raise ValueError("output_size dimensions must be positive")
+
+    src = _pca_corners(mask_arr)
+    if src is None:
+        return None
+    dst = np.array(
+        [[0, 0], [out_width - 1, 0], [out_width - 1, out_height - 1],
+         [0, out_height - 1]],
+        dtype=np.float32,
+    )
+    transform = cv2.getPerspectiveTransform(src.astype(np.float32), dst)
+    interpolation = cv2.INTER_NEAREST if source_is_mask else cv2.INTER_LINEAR
+    warped_source = cv2.warpPerspective(
+        source, transform, (out_width, out_height), flags=interpolation
+    )
+    if return_details:
+        warped_mask = cv2.warpPerspective(
+            mask_arr, transform, (out_width, out_height), flags=cv2.INTER_NEAREST
+        )
+        return {
+            "image": None if source_is_mask else warped_source,
+            "mask": warped_mask,
+            "warped": warped_source,
+            "corners": src,
+            "transform": transform,
+            "size": (out_width, out_height),
+        }
+    return warped_source
+
+
+def rectify_fretboard(mask, image=None, output_size=(1024, 256), *,
+                      return_details=False):
+    """Convenience wrapper around :func:`rectify_perspective`.
+
+    ``mask`` is the cleaned binary fretboard mask.  When ``image`` is
+    supplied, the image is warped; otherwise the mask itself is warped.
+    """
+    source = mask if image is None else image
+    return rectify_perspective(
+        source, None if image is None else mask, output_size,
+        return_details=return_details,
+    )
+
+
 # ═══════════════════════════════════════
 # VISUALIZATION
 # ═══════════════════════════════════════
 def visualize(img_path, mask, fret_lines, output_path=None):
     """Draw fret lines on the image and optionally save."""
-    img = cv2.imread(img_path)
-    if img is None:
+    try:
+        img = create_annotated_output(img_path, mask, fret_lines)
+    except (OSError, ValueError):
         return
-    # Semi-transparent green mask overlay
-    overlay = img.copy()
-    overlay[mask > 0] = (0, 200, 0)
-    img = cv2.addWeighted(overlay, 0.3, img, 0.7, 0)
-    # Draw fret lines
-    for i, (p1, p2) in enumerate(fret_lines):
-        cv2.line(img, (int(p1[0]), int(p1[1])), (int(p2[0]), int(p2[1])), (0, 0, 255), 2)
-        mid_x = int((p1[0] + p2[0]) / 2)
-        mid_y = int((p1[1] + p2[1]) / 2)
-        cv2.putText(img, str(i + 1), (mid_x - 5, mid_y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
+    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     if output_path:
-        cv2.imwrite(output_path, img)
+        cv2.imwrite(output_path, img_bgr)
         print(f"Saved visualization to {output_path}")
     else:
-        cv2.imshow("Fret Detection (PCA + Warp) — YOLO Mask", img)
+        cv2.imshow("Fret Detection (PCA + Warp) — YOLO Mask", img_bgr)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+
+
+def _point_json(point):
+    """Convert a point containing numpy scalars into JSON-native values."""
+    return {"x": round(float(point[0]), 3), "y": round(float(point[1]), 3)}
+
+
+def _fret_records(fret_lines):
+    records = []
+    for index, (start, end) in enumerate(fret_lines, start=1):
+        start_json = _point_json(start)
+        end_json = _point_json(end)
+        midpoint = {
+            "x": round((start_json["x"] + end_json["x"]) / 2.0, 3),
+            "y": round((start_json["y"] + end_json["y"]) / 2.0, 3),
+        }
+        records.append({
+            "number": index,
+            "start": start_json,
+            "end": end_json,
+            "midpoint": midpoint,
+        })
+    return records
+
+
+def build_json_report(image_path, image_size, weights_path, conf_threshold,
+                      mask, fret_lines, rectified_dimensions=None,
+                      rectified_output=None, rectified_corners=None,
+                      perspective_transform=None):
+    """Build a machine-readable inference report using JSON-native values."""
+    width, height = (int(image_size[0]), int(image_size[1]))
+    mask_pixels = int(np.count_nonzero(mask))
+    total_pixels = int(np.asarray(mask).size)
+    coverage = (mask_pixels / total_pixels * 100.0) if total_pixels else 0.0
+    report = {
+        "schema_version": "1.0",
+        "image": {
+            "path": os.fspath(image_path),
+            "width": width,
+            "height": height,
+            "dimensions": [width, height],
+            "mode": "RGB",
+            "channels": 3,
+        },
+        "model": {
+            "type": "yolov8-seg",
+            "weights": os.fspath(weights_path),
+            "confidence_threshold": float(conf_threshold),
+        },
+        "mask": {
+            "coverage_percent": float(coverage),
+            "foreground_pixels": mask_pixels,
+            "total_pixels": total_pixels,
+        },
+        "fret_count": int(len(fret_lines)),
+        "frets": _fret_records(fret_lines),
+    }
+    if rectified_dimensions is not None:
+        rect_width, rect_height = (
+            int(rectified_dimensions[0]), int(rectified_dimensions[1])
+        )
+        report["rectified"] = {
+            "width": rect_width,
+            "height": rect_height,
+            "dimensions": [rect_width, rect_height],
+        }
+        if rectified_output is not None:
+            report["rectified"]["output_path"] = os.fspath(rectified_output)
+        if rectified_corners is not None:
+            report["rectified"]["source_corners"] = [
+                _point_json(point) for point in rectified_corners
+            ]
+        if perspective_transform is not None:
+            report["rectified"]["perspective_transform"] = [
+                [round(float(value), 6) for value in row]
+                for row in perspective_transform
+            ]
+    return report
+
+
+def _write_json_report(path, report):
+    """Write a report, creating its parent directory when needed."""
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2, allow_nan=False)
+        handle.write("\n")
 
 
 # ═══════════════════════════════════════
@@ -237,7 +455,16 @@ def main():
                         help="Show/save visualization of detected frets")
     parser.add_argument("--output", default=None,
                         help="Output path for visualization image (default: display)")
+    parser.add_argument("--json", dest="json_path", default=None,
+                        help="Write machine-readable inference results to this JSON path")
+    parser.add_argument("--rectified-output", default=None,
+                        help="Save the PCA-perspective-rectified fretboard image")
+    parser.add_argument("--conf", type=float, default=YOLO_CONF_THRESH,
+                        help=f"YOLO confidence threshold (default: {YOLO_CONF_THRESH})")
     args = parser.parse_args()
+
+    if not 0.0 <= args.conf <= 1.0:
+        parser.error("--conf must be between 0 and 1")
 
     if not os.path.exists(args.image):
         print(f"ERROR: Image not found: {args.image}")
@@ -248,9 +475,13 @@ def main():
     model = load_yolo_model(args.weights)
 
     # Predict mask
-    img_pil = Image.open(args.image).convert("RGB")
+    try:
+        img_pil = Image.open(args.image).convert("RGB")
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: Could not read image {args.image}: {exc}")
+        sys.exit(1)
     print("Predicting fretboard mask...")
-    mask = predict_mask(model, img_pil)
+    mask = predict_mask(model, img_pil, conf=args.conf)
     mask_coverage = np.count_nonzero(mask) / mask.size * 100
     print(f"  Mask coverage: {mask_coverage:.1f}% of image")
 
@@ -263,6 +494,52 @@ def main():
     for i, (p1, p2) in enumerate(fret_lines):
         mid_x = (p1[0] + p2[0]) / 2
         print(f"  Fret {i+1:2d}: x={mid_x:.1f}px")
+
+    rectification = None
+    if args.rectified_output:
+        try:
+            rectification = rectify_perspective(
+                img_pil, mask, return_details=True
+            )
+            if rectification is None:
+                print("ERROR: Could not estimate fretboard corners for rectification")
+                sys.exit(1)
+            parent = os.path.dirname(os.path.abspath(args.rectified_output))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            Image.fromarray(rectification["image"], mode="RGB").save(
+                args.rectified_output
+            )
+            print(f"Saved rectified fretboard to {args.rectified_output}")
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: Could not create rectified output: {exc}")
+            sys.exit(1)
+
+    if args.json_path:
+        report = build_json_report(
+            args.image,
+            img_pil.size,
+            args.weights,
+            args.conf,
+            mask,
+            fret_lines,
+            rectified_dimensions=(
+                None if rectification is None else rectification["size"]
+            ),
+            rectified_output=args.rectified_output,
+            rectified_corners=(
+                None if rectification is None else rectification["corners"]
+            ),
+            perspective_transform=(
+                None if rectification is None else rectification["transform"]
+            ),
+        )
+        try:
+            _write_json_report(args.json_path, report)
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"ERROR: Could not write JSON report to {args.json_path}: {exc}")
+            sys.exit(1)
+        print(f"Saved JSON report to {args.json_path}")
 
     # Visualize
     if args.visualize:
