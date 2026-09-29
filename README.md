@@ -4,6 +4,37 @@ This repo contains the ongoing computer-vision work from the [AIM Lab](https://a
 
 Most of the work here is still a WIP.
 
+## Evidence-constrained fretboard atlas
+
+The new `pipeline.rectify_atlas` workflow fits the **internal fret/string grid**
+before resampling a playing frame into a standard 1024 x 256 rectangle. It
+compares YOLO and Mask R-CNN proposals, detects real wires, checks relative
+equal-temperament spacing, and uses an invertible cell mesh. Six strings map to
+fixed rows; supported fret intervals can be made equal width. See the
+[method analysis and limitations](research/fretboard_atlas.md).
+
+```bash
+python -m pipeline.rectify_atlas --image demos/fretboard_canonicalization/guitar_test_clean.png --output-dir output/atlas
+
+# Use an existing mask without loading any neural model.
+python -m pipeline.rectify_atlas --image frame.png --mask mask.png --output-dir output/atlas
+
+# Faster single-model proposal path; default uses both bundled checkpoints.
+python -m pipeline.rectify_atlas --image frame.png --yolo-only --output-dir output/atlas
+
+# Reproduce the synthetic comparison against the existing PCA warp.
+python scripts/benchmark_rectification.py --output-dir output/atlas-benchmark
+python -m pytest -q
+```
+
+Outputs include `rectified.png`, a separate `grid_overlay.png`, `source_grid.png`,
+`geometry.json`, `mapping.npz`, and an in-frame validity mask. An optional
+`--occlusion-mask hand.png` adds a visibility mask. `quality.status="coarse"`
+means there was insufficient internal evidence: the output is only a crop
+preview. Absolute fret numbers, nut direction, and string pitches remain
+unknown without an anchor. Existing PCA scripts and the Gradio demo remain
+available as the historical baseline.
+
 ## What is here
 
 | Goal | Existing implementation |

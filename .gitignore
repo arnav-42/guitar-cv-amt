@@ -30,3 +30,8 @@ pipeline/dataset/
 pipeline/dataset_yolo/
 pipeline/yolo_runs/
 
+# Local inspection and generated rectification artifacts
+tmp/
+output/
+.pytest_cache/
+
