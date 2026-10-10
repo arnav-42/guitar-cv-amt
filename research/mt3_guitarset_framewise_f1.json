@@ -1,0 +1,111 @@
+{
+  "run_date": "2026-10-10",
+  "dataset": "jhartquist/guitarset",
+  "dataset_revision": "4aca25487bef5cb0d2c4ec146218f9145402a776",
+  "model": "mr_mt3",
+  "metric": "framewise active-pitch F1",
+  "frame_rate": 100.0,
+  "pitch_window_semitones": 0.5,
+  "clip_count": 8,
+  "player_count": 2,
+  "style_counts": {
+    "comp": 4,
+    "solo": 4
+  },
+  "audio_seconds": 231.491156462585,
+  "score": {
+    "precision": 0.709107398043311,
+    "recall": 0.6847021361284331,
+    "f1": 0.6966911020209793
+  },
+  "clips": [
+    {
+      "track_id": "00_BN1-129-Eb_comp",
+      "player": 0,
+      "style": "comp",
+      "duration_seconds": 22.32439909297052,
+      "score": {
+        "precision": 0.7882543103448276,
+        "recall": 0.7697299193265521,
+        "f1": 0.7788819875776397
+      }
+    },
+    {
+      "track_id": "00_BN1-129-Eb_solo",
+      "player": 0,
+      "style": "solo",
+      "duration_seconds": 22.32439909297052,
+      "score": {
+        "precision": 0.8817345597897503,
+        "recall": 0.8539611835825645,
+        "f1": 0.8676256667205431
+      }
+    },
+    {
+      "track_id": "00_Funk2-108-Eb_comp",
+      "player": 0,
+      "style": "comp",
+      "duration_seconds": 35.54839002267574,
+      "score": {
+        "precision": 0.699799699549324,
+        "recall": 0.6811535337124289,
+        "f1": 0.6903507327515231
+      }
+    },
+    {
+      "track_id": "00_Funk2-108-Eb_solo",
+      "player": 0,
+      "style": "solo",
+      "duration_seconds": 35.54839002267574,
+      "score": {
+        "precision": 0.7401915353722582,
+        "recall": 0.7078286558345642,
+        "f1": 0.723648444578677
+      }
+    },
+    {
+      "track_id": "01_BN1-129-Eb_comp",
+      "player": 1,
+      "style": "comp",
+      "duration_seconds": 22.32439909297052,
+      "score": {
+        "precision": 0.8578528827037774,
+        "recall": 0.818785578747628,
+        "f1": 0.8378640776699029
+      }
+    },
+    {
+      "track_id": "01_BN1-129-Eb_solo",
+      "player": 1,
+      "style": "solo",
+      "duration_seconds": 22.32439909297052,
+      "score": {
+        "precision": 0.782145236508994,
+        "recall": 0.712378640776699,
+        "f1": 0.7456335344553826
+      }
+    },
+    {
+      "track_id": "01_Funk2-108-Eb_comp",
+      "player": 1,
+      "style": "comp",
+      "duration_seconds": 35.54839002267574,
+      "score": {
+        "precision": 0.4584388671425282,
+        "recall": 0.44471744471744473,
+        "f1": 0.45147392290249433
+      }
+    },
+    {
+      "track_id": "01_Funk2-108-Eb_solo",
+      "player": 1,
+      "style": "solo",
+      "duration_seconds": 35.54839002267574,
+      "score": {
+        "precision": 0.49535143175901825,
+        "recall": 0.47503566333808844,
+        "f1": 0.4849808847624249
+      }
+    }
+  ]
+}
