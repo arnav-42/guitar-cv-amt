@@ -87,6 +87,37 @@ The active script workflow is grouped in [`pipeline/`](pipeline/). Exploratory w
 
    This command uses `pipeline/yolo_weights_best.pt` by default. It draws the inferred fretboard mask and estimated fret lines on `result.png`.
 
+## Transcribe a performance video
+
+[`pipeline/video_to_score.py`](pipeline/video_to_score.py) extracts the video's
+first audio stream, transcribes it with MT3-Infer, and saves a WAV, MIDI, and
+editable MusicXML score. FFmpeg must be installed and available on `PATH`.
+
+The current MT3-Infer release requires Python 3.10 or newer. This repository's
+default `.python-version` is 3.9, so ask `uv` to use 3.10 for this command and
+include the optional `transcription` dependencies:
+
+```bash
+uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score path/to/performance.mp4
+```
+
+The first run installs the dependencies and downloads the default MR-MT3
+checkpoint. Outputs go into `performance_transcription/` beside the video.
+
+Choose a different model, device, or output directory as needed:
+
+```bash
+uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score path/to/performance.mp4 \
+  --model mt3_pytorch --device cuda \
+  --output-dir output/performance
+```
+
+The output directory contains `audio.wav`, `transcription.mid`, and
+`sheet.musicxml`. Open the MusicXML file in a notation editor such as MuseScore
+to review or print the score. The notation is generated from MT3's MIDI
+transcription, so it may need cleanup for guitar-specific tablature or fingering.
+Pass `--overwrite` to replace outputs already in the chosen directory.
+
 ## Active pipeline
 
 ```mermaid
