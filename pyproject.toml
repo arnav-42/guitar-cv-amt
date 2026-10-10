@@ -12,4 +12,5 @@ dependencies = [
 transcription = [
     "mt3-infer[torch] @ git+https://github.com/openmirlab/mt3-infer.git ; python_version >= '3.10'",
     "music21",
+    "yt-dlp",
 ]

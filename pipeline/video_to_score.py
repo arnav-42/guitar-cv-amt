@@ -6,9 +6,11 @@ import argparse
 import shutil
 import subprocess
 import sys
+import tempfile
 import wave
 from pathlib import Path
 from typing import Sequence
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
@@ -18,10 +20,76 @@ MODEL_NAMES = ("mr_mt3", "mt3_pytorch", "yourmt3")
 
 
 class PipelineError(RuntimeError):
-    """A user-facing error while extracting or transcribing a video."""
+    """A user-facing error while downloading or transcribing a performance."""
 
 
-def extract_audio(video_path: Path, wav_path: Path, *, overwrite: bool) -> None:
+def is_youtube_url(source: str) -> bool:
+    """Return whether source is an HTTP(S) URL on a YouTube domain."""
+    parsed = urlparse(source)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme in {"http", "https"} and (
+        host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
+    )
+
+
+def youtube_video_id(url: str) -> str | None:
+    """Extract an ID from common single-video YouTube URL forms."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host == "youtu.be":
+        return parsed.path.strip("/").split("/")[0] or None
+
+    query_id = parse_qs(parsed.query).get("v", [None])[0]
+    if query_id:
+        return query_id
+
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 2 and parts[0] in {"shorts", "embed", "live"}:
+        return parts[1]
+    return None
+
+
+def download_youtube_source(url: str, download_dir: Path) -> Path:
+    """Download a YouTube video's best audio stream using yt-dlp."""
+    try:
+        import yt_dlp  # noqa: F401
+    except ImportError as exc:
+        raise PipelineError(
+            "yt-dlp is not installed. Install the transcription dependencies from the README."
+        ) from exc
+
+    command = [
+        sys.executable,
+        "-m",
+        "yt_dlp",
+        "--no-playlist",
+        "--no-progress",
+        "--no-warnings",
+        "--quiet",
+        "--format",
+        "bestaudio/best",
+        "--output",
+        str(download_dir / "source.%(ext)s"),
+        "--print",
+        "after_move:filepath",
+        url,
+    ]
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        details = (exc.stderr or "").strip()
+        message = f"yt-dlp could not download audio from {url}."
+        if details:
+            message = f"{message}\n{details}"
+        raise PipelineError(message) from exc
+
+    downloaded_path = Path(result.stdout.strip())
+    if not downloaded_path.is_file():
+        raise PipelineError("yt-dlp finished without producing an audio file.")
+    return downloaded_path
+
+
+def extract_audio(media_path: Path, wav_path: Path, *, overwrite: bool) -> None:
     """Extract the first audio stream as mono, 16 kHz, 16-bit PCM WAV."""
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
@@ -34,7 +102,7 @@ def extract_audio(video_path: Path, wav_path: Path, *, overwrite: bool) -> None:
     command.extend(
         [
             "-i",
-            str(video_path),
+            str(media_path),
             "-map",
             "0:a:0",
             "-vn",
@@ -51,7 +119,7 @@ def extract_audio(video_path: Path, wav_path: Path, *, overwrite: bool) -> None:
         subprocess.run(command, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as exc:
         details = (exc.stderr or "").strip()
-        message = f"FFmpeg could not extract audio from {video_path}."
+        message = f"FFmpeg could not extract audio from {media_path}."
         if details:
             message = f"{message}\n{details}"
         raise PipelineError(message) from exc
@@ -108,15 +176,18 @@ def write_musicxml(midi_path: Path, musicxml_path: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Extract audio from a video, transcribe it with MT3-Infer, and save "
-            "the audio, MIDI, and MusicXML sheet music."
+            "Extract audio from a local video or YouTube link, transcribe it "
+            "with MT3-Infer, and save WAV, MIDI, and MusicXML files."
         )
     )
-    parser.add_argument("video", type=Path, help="Video file containing the performance")
+    parser.add_argument(
+        "source",
+        help="Local video file or a single YouTube video URL",
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        help="Output directory (default: <video-name>_transcription beside the video)",
+        help="Output directory (default: next to a local video, or <YouTube-ID>_transcription here)",
     )
     parser.add_argument("--model", choices=MODEL_NAMES, default="mr_mt3")
     parser.add_argument(
@@ -132,9 +203,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run(video_path: Path, output_dir: Path, *, model_name: str, device: str, overwrite: bool) -> None:
-    if not video_path.is_file():
-        raise PipelineError(f"Video file does not exist: {video_path}")
+def run(source: str, output_dir: Path, *, model_name: str, device: str, overwrite: bool) -> None:
+    youtube_source = is_youtube_url(source)
+    media_path = Path(source)
+    if not youtube_source and not media_path.is_file():
+        raise PipelineError(f"Video file does not exist: {media_path}")
+    if youtube_source and youtube_video_id(source) is None:
+        raise PipelineError("Provide a single YouTube video URL, not a playlist URL.")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs = {
@@ -150,8 +225,14 @@ def run(video_path: Path, output_dir: Path, *, model_name: str, device: str, ove
             + ". Choose another --output-dir or pass --overwrite."
         )
 
-    print(f"Extracting audio from {video_path}...")
-    extract_audio(video_path, outputs["audio"], overwrite=overwrite)
+    if youtube_source:
+        print(f"Downloading audio from {source}...")
+        with tempfile.TemporaryDirectory(prefix="guitar-cv-amt-") as temporary_dir:
+            media_path = download_youtube_source(source, Path(temporary_dir))
+            extract_audio(media_path, outputs["audio"], overwrite=overwrite)
+    else:
+        print(f"Extracting audio from {media_path}...")
+        extract_audio(media_path, outputs["audio"], overwrite=overwrite)
     audio = read_model_audio(outputs["audio"])
 
     transcribe_audio(
@@ -171,13 +252,18 @@ def run(video_path: Path, output_dir: Path, *, model_name: str, device: str, ove
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    output_dir = args.output_dir or args.video.with_name(
-        f"{args.video.stem}_transcription"
-    )
+    if args.output_dir:
+        output_dir = args.output_dir
+    elif is_youtube_url(args.source):
+        video_id = youtube_video_id(args.source)
+        output_dir = Path(f"{video_id or 'youtube'}_transcription")
+    else:
+        source_path = Path(args.source)
+        output_dir = source_path.with_name(f"{source_path.stem}_transcription")
 
     try:
         run(
-            args.video,
+            args.source,
             output_dir,
             model_name=args.model,
             device=args.device,

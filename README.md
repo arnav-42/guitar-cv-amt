@@ -89,25 +89,29 @@ The active script workflow is grouped in [`pipeline/`](pipeline/). Exploratory w
 
 ## Transcribe a performance video
 
-[`pipeline/video_to_score.py`](pipeline/video_to_score.py) extracts the video's
-first audio stream, transcribes it with MT3-Infer, and saves a WAV, MIDI, and
-editable MusicXML score. FFmpeg must be installed and available on `PATH`.
+[`pipeline/video_to_score.py`](pipeline/video_to_score.py) accepts a local video
+or a single YouTube video URL, transcribes its audio with MT3-Infer, and saves a
+WAV, MIDI, and editable MusicXML score. FFmpeg must be installed and available
+on `PATH`.
 
 The current MT3-Infer release requires Python 3.10 or newer. This repository's
 default `.python-version` is 3.9, so ask `uv` to use 3.10 for this command and
 include the optional `transcription` dependencies:
 
 ```bash
-uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score path/to/performance.mp4
+uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
 The first run installs the dependencies and downloads the default MR-MT3
-checkpoint. Outputs go into `performance_transcription/` beside the video.
+checkpoint. For a YouTube URL, the audio is downloaded temporarily and the
+output folder is named `<YouTube-ID>_transcription/` in the current directory.
+For a local video, outputs go into `<video-name>_transcription/` beside it.
+YouTube playlists are not supported; provide a link to one video.
 
 Choose a different model, device, or output directory as needed:
 
 ```bash
-uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score path/to/performance.mp4 \
+uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score "https://youtu.be/VIDEO_ID" \
   --model mt3_pytorch --device cuda \
   --output-dir output/performance
 ```
