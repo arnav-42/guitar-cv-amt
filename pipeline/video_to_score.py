@@ -17,6 +17,7 @@ import numpy as np
 
 SAMPLE_RATE = 16_000
 MODEL_NAMES = ("mr_mt3", "mt3_pytorch", "yourmt3")
+MR_MT3_INFERENCE_BATCH_SIZE = 8
 
 
 class PipelineError(RuntimeError):
@@ -156,7 +157,61 @@ def transcribe_audio(
 
     print(f"Loading {model_name} on {device} (first use may download its checkpoint)...")
     model = load_model(model_name, device=device)
-    midi = model.transcribe(audio, sr=SAMPLE_RATE)
+    if model_name == "mr_mt3":
+        print(
+            f"Preparing audio features ({audio.size / SAMPLE_RATE:.1f} seconds)...",
+            flush=True,
+        )
+        features = model.preprocess(audio, sr=SAMPLE_RATE)
+        inputs = features["inputs"]
+        num_segments = len(inputs)
+        if num_segments == 0:
+            raise PipelineError("The audio is too short for MR-MT3 to transcribe.")
+        num_batches = (
+            num_segments + MR_MT3_INFERENCE_BATCH_SIZE - 1
+        ) // MR_MT3_INFERENCE_BATCH_SIZE
+        batch_outputs = []
+
+        for batch_index, start in enumerate(
+            range(0, num_segments, MR_MT3_INFERENCE_BATCH_SIZE), start=1
+        ):
+            end = min(start + MR_MT3_INFERENCE_BATCH_SIZE, num_segments)
+            print(
+                f"Transcribing batch {batch_index}/{num_batches} "
+                f"(audio windows {start + 1}-{end}/{num_segments})...",
+                flush=True,
+            )
+            batch_outputs.append(
+                model.forward(
+                    {
+                        "inputs": inputs[start:end],
+                        "frame_times": features["frame_times"][start:end],
+                    }
+                )
+            )
+
+        token_batches = [output["tokens"] for output in batch_outputs]
+        max_token_count = max(tokens.shape[1] for tokens in token_batches)
+        tokens = np.concatenate(
+            [
+                np.pad(
+                    batch_tokens,
+                    ((0, 0), (0, max_token_count - batch_tokens.shape[1])),
+                    constant_values=-1,
+                )
+                for batch_tokens in token_batches
+            ]
+        )
+        midi = model.decode(
+            {
+                "tokens": tokens,
+                "frame_times": np.concatenate(
+                    [output["frame_times"] for output in batch_outputs]
+                ),
+            }
+        )
+    else:
+        midi = model.transcribe(audio, sr=SAMPLE_RATE)
     midi.save(str(midi_path))
 
 

@@ -35,3 +35,6 @@ tmp/
 output/
 .pytest_cache/
 
+# Local transcription outputs and downloaded model checkpoints
+/.mt3_checkpoints/
+*_transcription/
