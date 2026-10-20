@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
+from pipeline.guitar_tab import GuitarTabError, midi_to_tab_notes, render_ascii_tab
 
 SAMPLE_RATE = 16_000
 MODEL_NAMES = ("mr_mt3", "mt3_pytorch", "yourmt3")
@@ -215,6 +216,15 @@ def transcribe_audio(
     midi.save(str(midi_path))
 
 
+def write_tablature(midi_path: Path, tablature_path: Path) -> None:
+    """Convert a transcribed MIDI file to conventional ASCII guitar tab."""
+    try:
+        notes = midi_to_tab_notes(midi_path)
+    except GuitarTabError as exc:
+        raise PipelineError(str(exc)) from exc
+    tablature_path.write_text(render_ascii_tab(notes) + "\n", encoding="utf-8")
+
+
 def write_musicxml(midi_path: Path, musicxml_path: Path) -> None:
     """Convert the transcribed MIDI into editable sheet music (MusicXML)."""
     try:
@@ -232,7 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Extract audio from a local video or YouTube link, transcribe it "
-            "with MT3-Infer, and save WAV, MIDI, and MusicXML files."
+            "with MT3-Infer, and save WAV, MIDI, tablature.txt, and MusicXML files."
         )
     )
     parser.add_argument(
@@ -253,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Replace existing audio, MIDI, and MusicXML outputs",
+        help="Replace existing audio, MIDI, tablature.txt, and MusicXML outputs",
     )
     return parser
 
@@ -270,6 +280,7 @@ def run(source: str, output_dir: Path, *, model_name: str, device: str, overwrit
     outputs = {
         "audio": output_dir / "audio.wav",
         "MIDI": output_dir / "transcription.mid",
+        "tablature": output_dir / "tablature.txt",
         "sheet music": output_dir / "sheet.musicxml",
     }
     existing = [str(path) for path in outputs.values() if path.exists()]
@@ -296,6 +307,8 @@ def run(source: str, output_dir: Path, *, model_name: str, device: str, overwrit
         model_name=model_name,
         device=device,
     )
+    print("Converting MIDI to ASCII tablature...")
+    write_tablature(outputs["MIDI"], outputs["tablature"])
     print("Converting MIDI to MusicXML...")
     write_musicxml(outputs["MIDI"], outputs["sheet music"])
 

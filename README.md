@@ -91,8 +91,8 @@ The active script workflow is grouped in [`pipeline/`](pipeline/). Exploratory w
 
 [`pipeline/video_to_score.py`](pipeline/video_to_score.py) accepts a local video
 or a single YouTube video URL, transcribes its audio with MT3-Infer, and saves a
-WAV, MIDI, and editable MusicXML score. FFmpeg must be installed and available
-on `PATH`.
+WAV, MIDI, six-line ASCII guitar tablature, and editable MusicXML score. FFmpeg
+must be installed and available on `PATH`.
 
 The current MT3-Infer release requires Python 3.10 or newer. This repository's
 default `.python-version` is 3.9, so ask `uv` to use 3.10 for this command and
@@ -116,11 +116,44 @@ uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score 
   --output-dir output/performance
 ```
 
-The output directory contains `audio.wav`, `transcription.mid`, and
-`sheet.musicxml`. Open the MusicXML file in a notation editor such as MuseScore
-to review or print the score. The notation is generated from MT3's MIDI
-transcription, so it may need cleanup for guitar-specific tablature or fingering.
-Pass `--overwrite` to replace outputs already in the chosen directory.
+The output directory contains `audio.wav`, `transcription.mid`,
+`tablature.txt`, and `sheet.musicxml`. Open the MusicXML file in a notation
+editor such as MuseScore to review or print the score. The generated
+tablature uses standard tuning (low-to-high MIDI E2/A2/D3/G3/B3/E4) and emits
+six conventional lines in high-to-low display order:
+
+```text
+e|0-12-|
+B|-----|
+G|-----|
+D|-----|
+A|-----|
+E|-----|
+```
+
+Each onset event occupies one aligned column. Columns are at least two
+characters wide and expand for two-digit frets; systems contain at most 16
+events and are separated by a blank line. Notes whose rounded MIDI pitch
+cannot be played on a standard-tuned string at fret 0--24 are omitted, as are
+excess notes when a simultaneous event needs more than six strings. Drum MIDI
+tracks are ignored. The MIDI transcription does not contain guitar fingering, so
+the deterministic assignment favors compact positions and smooth transitions but
+is not a guarantee of the performer's fingering. Near-simultaneous onsets (within
+50 ms) are treated as one chord event.
+
+Pass `--overwrite` to replace outputs already in the chosen directory,
+including `tablature.txt`.
+
+## GuitarSet benchmark tab comparisons
+
+The fixed eight-clip MT3 benchmark writes its metrics to
+[`research/mt3_guitarset_framewise_f1.md`](research/mt3_guitarset_framewise_f1.md)
+and its aligned ground-truth versus generated tab systems to
+[`research/mt3_guitarset_tab_comparisons.md`](research/mt3_guitarset_tab_comparisons.md).
+Use `--comparisons PATH` on
+`scripts.evaluate_mt3_guitarset_framewise` to choose a different comparison
+report location.
+
 
 ## Active pipeline
 
