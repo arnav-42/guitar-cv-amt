@@ -1,0 +1,362 @@
+{
+  "run_date": "2026-10-20",
+  "dataset": "jhartquist/guitarset",
+  "dataset_revision": "4aca25487bef5cb0d2c4ec146218f9145402a776",
+  "row_ranges": [
+    [
+      0,
+      2
+    ],
+    [
+      16,
+      2
+    ],
+    [
+      60,
+      2
+    ],
+    [
+      76,
+      2
+    ]
+  ],
+  "model": "mr_mt3",
+  "metric": "framewise active-pitch F1",
+  "frame_rate": 100.0,
+  "pitch_window_semitones": 0.5,
+  "tab_metric": "one-to-one exact string/fret event matching",
+  "tab_onset_tolerance_seconds": 0.05,
+  "comparison_report": "research/mt3_guitarset_tab_comparisons.md",
+  "clip_count": 8,
+  "player_count": 2,
+  "style_counts": {
+    "comp": 4,
+    "solo": 4
+  },
+  "audio_seconds": 231.491156462585,
+  "score": {
+    "precision": 0.709107398043311,
+    "recall": 0.6847021361284331,
+    "f1": 0.6966911020209793
+  },
+  "tab": {
+    "metric": "one-to-one exact string/fret event matching",
+    "onset_tolerance_seconds": 0.05,
+    "provenance": "generated local augmentation; upstream GuitarSet rows are not mutated",
+    "predicted_midi_scope": "all nonzero-duration non-drum MIDI notes",
+    "artifact_root": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs",
+    "artifact_directories": {
+      "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference",
+      "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted"
+    },
+    "score": {
+      "precision": 0.2187711006076975,
+      "recall": 0.2162883845126836,
+      "f1": 0.21752265861027192,
+      "assignment_accuracy": 0.629126213592233
+    },
+    "counts": {
+      "reference_note_count": 1498,
+      "reference_tab_note_count": 1498,
+      "unplayable_or_invalid_reference_note_count": 0,
+      "predicted_midi_note_count": 1481,
+      "rendered_predicted_tab_note_count": 1481,
+      "unplayable_or_unassigned_predicted_note_count": 0,
+      "exact_tab_true_positive_count": 324,
+      "exact_tab_false_positive_count": 1157,
+      "exact_tab_false_negative_count": 1174,
+      "pitch_matched_playable_note_count": 515,
+      "assignment_correct_count": 324
+    }
+  },
+  "clips": [
+    {
+      "track_id": "00_BN1-129-Eb_comp",
+      "player": 0,
+      "style": "comp",
+      "duration_seconds": 22.32439909297052,
+      "score": {
+        "precision": 0.7882543103448276,
+        "recall": 0.7697299193265521,
+        "f1": 0.7788819875776397
+      },
+      "tab": {
+        "artifacts": {
+          "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference/00_BN1-129-Eb_comp.txt",
+          "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted/00_BN1-129-Eb_comp.txt"
+        },
+        "score": {
+          "precision": 0.09774436090225563,
+          "recall": 0.09774436090225563,
+          "f1": 0.09774436090225563,
+          "assignment_accuracy": 0.38235294117647056
+        },
+        "counts": {
+          "reference_note_count": 133,
+          "reference_tab_note_count": 133,
+          "unplayable_or_invalid_reference_note_count": 0,
+          "predicted_midi_note_count": 133,
+          "rendered_predicted_tab_note_count": 133,
+          "unplayable_or_unassigned_predicted_note_count": 0,
+          "exact_tab_true_positive_count": 13,
+          "exact_tab_false_positive_count": 120,
+          "exact_tab_false_negative_count": 120,
+          "pitch_matched_playable_note_count": 34,
+          "assignment_correct_count": 13
+        }
+      }
+    },
+    {
+      "track_id": "00_BN1-129-Eb_solo",
+      "player": 0,
+      "style": "solo",
+      "duration_seconds": 22.32439909297052,
+      "score": {
+        "precision": 0.8817345597897503,
+        "recall": 0.8539611835825645,
+        "f1": 0.8676256667205431
+      },
+      "tab": {
+        "artifacts": {
+          "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference/00_BN1-129-Eb_solo.txt",
+          "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted/00_BN1-129-Eb_solo.txt"
+        },
+        "score": {
+          "precision": 0.19718309859154928,
+          "recall": 0.19718309859154928,
+          "f1": 0.19718309859154928,
+          "assignment_accuracy": 0.42424242424242425
+        },
+        "counts": {
+          "reference_note_count": 71,
+          "reference_tab_note_count": 71,
+          "unplayable_or_invalid_reference_note_count": 0,
+          "predicted_midi_note_count": 71,
+          "rendered_predicted_tab_note_count": 71,
+          "unplayable_or_unassigned_predicted_note_count": 0,
+          "exact_tab_true_positive_count": 14,
+          "exact_tab_false_positive_count": 57,
+          "exact_tab_false_negative_count": 57,
+          "pitch_matched_playable_note_count": 33,
+          "assignment_correct_count": 14
+        }
+      }
+    },
+    {
+      "track_id": "00_Funk2-108-Eb_comp",
+      "player": 0,
+      "style": "comp",
+      "duration_seconds": 35.54839002267574,
+      "score": {
+        "precision": 0.699799699549324,
+        "recall": 0.6811535337124289,
+        "f1": 0.6903507327515231
+      },
+      "tab": {
+        "artifacts": {
+          "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference/00_Funk2-108-Eb_comp.txt",
+          "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted/00_Funk2-108-Eb_comp.txt"
+        },
+        "score": {
+          "precision": 0.2709551656920078,
+          "recall": 0.26577437858508607,
+          "f1": 0.26833976833976836,
+          "assignment_accuracy": 0.7513513513513513
+        },
+        "counts": {
+          "reference_note_count": 523,
+          "reference_tab_note_count": 523,
+          "unplayable_or_invalid_reference_note_count": 0,
+          "predicted_midi_note_count": 513,
+          "rendered_predicted_tab_note_count": 513,
+          "unplayable_or_unassigned_predicted_note_count": 0,
+          "exact_tab_true_positive_count": 139,
+          "exact_tab_false_positive_count": 374,
+          "exact_tab_false_negative_count": 384,
+          "pitch_matched_playable_note_count": 185,
+          "assignment_correct_count": 139
+        }
+      }
+    },
+    {
+      "track_id": "00_Funk2-108-Eb_solo",
+      "player": 0,
+      "style": "solo",
+      "duration_seconds": 35.54839002267574,
+      "score": {
+        "precision": 0.7401915353722582,
+        "recall": 0.7078286558345642,
+        "f1": 0.723648444578677
+      },
+      "tab": {
+        "artifacts": {
+          "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference/00_Funk2-108-Eb_solo.txt",
+          "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted/00_Funk2-108-Eb_solo.txt"
+        },
+        "score": {
+          "precision": 0.29411764705882354,
+          "recall": 0.2892561983471074,
+          "f1": 0.2916666666666667,
+          "assignment_accuracy": 0.7291666666666666
+        },
+        "counts": {
+          "reference_note_count": 121,
+          "reference_tab_note_count": 121,
+          "unplayable_or_invalid_reference_note_count": 0,
+          "predicted_midi_note_count": 119,
+          "rendered_predicted_tab_note_count": 119,
+          "unplayable_or_unassigned_predicted_note_count": 0,
+          "exact_tab_true_positive_count": 35,
+          "exact_tab_false_positive_count": 84,
+          "exact_tab_false_negative_count": 86,
+          "pitch_matched_playable_note_count": 48,
+          "assignment_correct_count": 35
+        }
+      }
+    },
+    {
+      "track_id": "01_BN1-129-Eb_comp",
+      "player": 1,
+      "style": "comp",
+      "duration_seconds": 22.32439909297052,
+      "score": {
+        "precision": 0.8578528827037774,
+        "recall": 0.818785578747628,
+        "f1": 0.8378640776699029
+      },
+      "tab": {
+        "artifacts": {
+          "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference/01_BN1-129-Eb_comp.txt",
+          "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted/01_BN1-129-Eb_comp.txt"
+        },
+        "score": {
+          "precision": 0.1346153846153846,
+          "recall": 0.13333333333333333,
+          "f1": 0.1339712918660287,
+          "assignment_accuracy": 0.4827586206896552
+        },
+        "counts": {
+          "reference_note_count": 105,
+          "reference_tab_note_count": 105,
+          "unplayable_or_invalid_reference_note_count": 0,
+          "predicted_midi_note_count": 104,
+          "rendered_predicted_tab_note_count": 104,
+          "unplayable_or_unassigned_predicted_note_count": 0,
+          "exact_tab_true_positive_count": 14,
+          "exact_tab_false_positive_count": 90,
+          "exact_tab_false_negative_count": 91,
+          "pitch_matched_playable_note_count": 29,
+          "assignment_correct_count": 14
+        }
+      }
+    },
+    {
+      "track_id": "01_BN1-129-Eb_solo",
+      "player": 1,
+      "style": "solo",
+      "duration_seconds": 22.32439909297052,
+      "score": {
+        "precision": 0.782145236508994,
+        "recall": 0.712378640776699,
+        "f1": 0.7456335344553826
+      },
+      "tab": {
+        "artifacts": {
+          "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference/01_BN1-129-Eb_solo.txt",
+          "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted/01_BN1-129-Eb_solo.txt"
+        },
+        "score": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "assignment_accuracy": 0.0
+        },
+        "counts": {
+          "reference_note_count": 61,
+          "reference_tab_note_count": 61,
+          "unplayable_or_invalid_reference_note_count": 0,
+          "predicted_midi_note_count": 61,
+          "rendered_predicted_tab_note_count": 61,
+          "unplayable_or_unassigned_predicted_note_count": 0,
+          "exact_tab_true_positive_count": 0,
+          "exact_tab_false_positive_count": 61,
+          "exact_tab_false_negative_count": 61,
+          "pitch_matched_playable_note_count": 26,
+          "assignment_correct_count": 0
+        }
+      }
+    },
+    {
+      "track_id": "01_Funk2-108-Eb_comp",
+      "player": 1,
+      "style": "comp",
+      "duration_seconds": 35.54839002267574,
+      "score": {
+        "precision": 0.4584388671425282,
+        "recall": 0.44471744471744473,
+        "f1": 0.45147392290249433
+      },
+      "tab": {
+        "artifacts": {
+          "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference/01_Funk2-108-Eb_comp.txt",
+          "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted/01_Funk2-108-Eb_comp.txt"
+        },
+        "score": {
+          "precision": 0.3219178082191781,
+          "recall": 0.32081911262798635,
+          "f1": 0.3213675213675214,
+          "assignment_accuracy": 1.0
+        },
+        "counts": {
+          "reference_note_count": 293,
+          "reference_tab_note_count": 293,
+          "unplayable_or_invalid_reference_note_count": 0,
+          "predicted_midi_note_count": 292,
+          "rendered_predicted_tab_note_count": 292,
+          "unplayable_or_unassigned_predicted_note_count": 0,
+          "exact_tab_true_positive_count": 94,
+          "exact_tab_false_positive_count": 198,
+          "exact_tab_false_negative_count": 199,
+          "pitch_matched_playable_note_count": 94,
+          "assignment_correct_count": 94
+        }
+      }
+    },
+    {
+      "track_id": "01_Funk2-108-Eb_solo",
+      "player": 1,
+      "style": "solo",
+      "duration_seconds": 35.54839002267574,
+      "score": {
+        "precision": 0.49535143175901825,
+        "recall": 0.47503566333808844,
+        "f1": 0.4849808847624249
+      },
+      "tab": {
+        "artifacts": {
+          "reference": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/reference/01_Funk2-108-Eb_solo.txt",
+          "predicted": "/var/folders/7b/lqlr4kfn56qgp8tmk31crqxc0000gn/T/guitar-cv-amt-mt3-benchmark/tabs/predicted/01_Funk2-108-Eb_solo.txt"
+        },
+        "score": {
+          "precision": 0.0797872340425532,
+          "recall": 0.07853403141361257,
+          "f1": 0.079155672823219,
+          "assignment_accuracy": 0.22727272727272727
+        },
+        "counts": {
+          "reference_note_count": 191,
+          "reference_tab_note_count": 191,
+          "unplayable_or_invalid_reference_note_count": 0,
+          "predicted_midi_note_count": 188,
+          "rendered_predicted_tab_note_count": 188,
+          "unplayable_or_unassigned_predicted_note_count": 0,
+          "exact_tab_true_positive_count": 15,
+          "exact_tab_false_positive_count": 173,
+          "exact_tab_false_negative_count": 176,
+          "pitch_matched_playable_note_count": 66,
+          "assignment_correct_count": 15
+        }
+      }
+    }
+  ]
+}

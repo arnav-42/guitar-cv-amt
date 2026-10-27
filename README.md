@@ -144,15 +144,6 @@ is not a guarantee of the performer's fingering. Near-simultaneous onsets (withi
 Pass `--overwrite` to replace outputs already in the chosen directory,
 including `tablature.txt`.
 
-### Experimental audio/vision fusion
-
-`pipeline.audio_fusion.fuse_onsets` is a reusable research helper for matching
-audio onsets to visual string/fret candidates. It now combines candidate
-evidence from every supplied video frame within 0.2 seconds of an onset,
-weighting frames closer to the pluck more strongly instead of trusting one
-potentially noisy frame. Callers still need to provide the visual candidates;
-this helper is not yet wired into the video-to-score CLI.
-
 ## GuitarSet benchmark tab comparisons
 
 The fixed eight-clip MT3 benchmark writes its metrics to

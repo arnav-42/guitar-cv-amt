@@ -1,0 +1,43 @@
+{
+  "content": [
+    {
+      "content": null,
+      "created": "2026-01-28T22:09:17.716890Z",
+      "format": null,
+      "hash": null,
+      "hash_algorithm": null,
+      "last_modified": "2026-01-28T22:03:57.091200Z",
+      "mimetype": null,
+      "name": "canonical_fretboard.ipynb",
+      "path": "canonical_fretboard.ipynb",
+      "size": 496579,
+      "type": "notebook",
+      "writable": true
+    },
+    {
+      "content": null,
+      "created": "2026-01-28T22:09:17.718894Z",
+      "format": null,
+      "hash": null,
+      "hash_algorithm": null,
+      "last_modified": "2026-01-28T21:20:39.361000Z",
+      "mimetype": null,
+      "name": "fft_chord_candidates.ipynb",
+      "path": "fft_chord_candidates.ipynb",
+      "size": 533583,
+      "type": "notebook",
+      "writable": true
+    }
+  ],
+  "created": "2026-01-28T22:09:17.716890Z",
+  "format": "json",
+  "hash": null,
+  "hash_algorithm": null,
+  "last_modified": "2026-01-28T22:09:17.718894Z",
+  "mimetype": null,
+  "name": "",
+  "path": "",
+  "size": null,
+  "type": "directory",
+  "writable": true
+}

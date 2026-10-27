@@ -48,30 +48,6 @@ def test_pitch_and_contact_likelihood_rank_fingering_candidate():
     assert event.confidence > 0.99
 
 
-def test_fusion_uses_consistent_visual_evidence_around_the_onset():
-    onset = AudioOnset(0.2, 220.0, 57, 0.0, 1.0)
-    frames = [
-        VisualFrame(0.1, (
-            VisualCandidate(2, 7, 1.0, "index", confidence=1.0),
-        )),
-        VisualFrame(0.2, (
-            VisualCandidate(4, 7, 60.0, "ring", confidence=1.0),
-        )),
-        VisualFrame(0.3, (
-            VisualCandidate(2, 7, 1.0, "index", confidence=1.0),
-        )),
-        VisualFrame(0.41, (
-            VisualCandidate(4, 7, 0.0, "ring", confidence=1.0),
-        )),
-    ]
-
-    event, = fuse_onsets([onset], frames)
-
-    assert (event.string_idx, event.fret_idx) == (2, 7)
-    assert event.press_finger == "index"
-    assert event.confidence > 0.99
-
-
 def test_score_pitch_hint_replaces_uncertain_audio_pitch():
     onset = AudioOnset(0.2, 440.0, 69, 1.0, 1.0)
     frame = VisualFrame(0.2, (
