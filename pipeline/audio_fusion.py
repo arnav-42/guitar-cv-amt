@@ -233,15 +233,17 @@ def fuse_onsets(
     onsets: Sequence[AudioOnset],
     frames: Sequence[VisualFrame],
     *,
-    match_tolerance_sec: float = 0.06,
+    match_tolerance_sec: float = 0.2,
     score_pitch_hints: Mapping[int, int] | None = None,
     contact_distance: float = 12.0,
     distance_scale: float = 4.0,
 ) -> list[FusedNoteEvent]:
-    """Rank visual candidates at each audio onset using pitch and geometry.
+    """Rank visual candidates at each audio onset using pitch and nearby frames.
 
     ``score_pitch_hints`` maps onset index to MIDI pitch, allowing an aligned
     score to replace uncertain audio pitch as in the reference methodology.
+    All visual frames inside ``match_tolerance_sec`` contribute, with frames
+    nearer the onset weighted more heavily than frames farther away.
     """
     if match_tolerance_sec < 0 or contact_distance < 0 or distance_scale <= 0:
         raise ValueError("invalid matching tolerance or geometric likelihood scale")
@@ -254,12 +256,20 @@ def fuse_onsets(
             effective_pitch = int(score_pitch_hints[onset_index])
             pitch_confidence = 1.0
 
-        nearby = [frame for frame in ordered_frames
-                  if abs(frame.time_sec - onset.time_sec) <= match_tolerance_sec]
-        frame = min(nearby, key=lambda item: abs(item.time_sec - onset.time_sec)) if nearby else None
-        ranked = []
-        if frame is not None:
+        nearby = [
+            frame for frame in ordered_frames
+            if abs(frame.time_sec - onset.time_sec) <= match_tolerance_sec
+        ]
+        ranked_by_location: dict[tuple[int, int], tuple[float, float, VisualCandidate]] = {}
+        total_frame_weight = 0.0
+        sigma = max(match_tolerance_sec / 2.0, 1e-6)
+        for frame in nearby:
+            time_delta = abs(frame.time_sec - onset.time_sec)
+            frame_weight = float(np.exp(-0.5 * (time_delta / sigma) ** 2))
+            total_frame_weight += frame_weight
+            frame_scores: dict[tuple[int, int], tuple[float, VisualCandidate]] = {}
             for candidate in frame.candidates:
+                location = (candidate.string_idx, candidate.fret_idx)
                 probability = _candidate_probability(
                     candidate,
                     effective_pitch,
@@ -267,7 +277,25 @@ def fuse_onsets(
                     contact_distance,
                     distance_scale,
                 )
-                ranked.append((probability, candidate))
+                previous = frame_scores.get(location)
+                if previous is None or probability > previous[0]:
+                    frame_scores[location] = (probability, candidate)
+
+            for location, (probability, candidate) in frame_scores.items():
+                score, best_contribution, best_candidate = ranked_by_location.get(
+                    location, (0.0, -1.0, candidate)
+                )
+                contribution = frame_weight * probability
+                ranked_by_location[location] = (
+                    score + contribution,
+                    max(best_contribution, contribution),
+                    candidate if contribution > best_contribution else best_candidate,
+                )
+
+        ranked = [
+            (score / total_frame_weight, candidate)
+            for score, _, candidate in ranked_by_location.values()
+        ] if total_frame_weight else []
 
         if not ranked:
             output.append(FusedNoteEvent(
