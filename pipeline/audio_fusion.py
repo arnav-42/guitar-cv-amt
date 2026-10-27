@@ -269,7 +269,7 @@ def fuse_onsets(
                 )
                 ranked.append((probability, candidate))
 
-        if not ranked:
+        if not ranked or not any(probability > 0.0 for probability, _ in ranked):
             output.append(FusedNoteEvent(
                 onset_sec=onset.time_sec,
                 pitch_midi=effective_pitch,
@@ -281,6 +281,7 @@ def fuse_onsets(
                 pitch_confidence=pitch_confidence,
             ))
             continue
+
 
         total_probability = sum(probability for probability, _ in ranked)
         probability, candidate = max(

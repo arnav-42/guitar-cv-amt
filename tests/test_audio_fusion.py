@@ -74,3 +74,14 @@ def test_multichannel_integer_audio_is_normalized_before_analysis():
     assert mono.shape == (2,)
     assert np.max(np.abs(mono)) <= 1.0
     assert mono[1] > 0.0
+
+
+def test_all_zero_visual_candidates_leave_position_unselected():
+    onset = AudioOnset(0.2, 220.0, 57, 1.0, 1.0)
+    frame = VisualFrame(0.2, (VisualCandidate(2, 7, 2.0, "index", None, None, 0.0),))
+
+    event, = fuse_onsets([onset], [frame])
+
+    assert event.string_idx is None
+    assert event.fret_idx is None
+    assert event.confidence == 0.0

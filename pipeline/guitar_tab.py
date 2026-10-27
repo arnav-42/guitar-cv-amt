@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, NamedTuple, Sequence
 
 
 # String indices follow GuitarSet: 0 is the low E string and 5 is the high E.
@@ -20,10 +20,62 @@ TAB_STRING_LABELS = ("e", "B", "G", "D", "A", "E")
 MAX_FRET = 24
 ONSET_GROUP_TOLERANCE_SEC = 0.05
 _MAX_CANDIDATES_PER_CHORD = 4096
+_VISUAL_COST_WEIGHT = 24.0
+
+
 
 
 class GuitarTabError(RuntimeError):
     """A user-facing error while reading or assigning a MIDI tablature."""
+
+
+class PlayablePosition(NamedTuple):
+    """An immutable standard-tuning guitar position."""
+
+    string_idx: int
+    fret_idx: int
+
+
+
+@dataclass(frozen=True, order=True)
+class ScoreNoteId:
+    """Stable identity for one source MIDI note, including duplicate pitches."""
+
+    source_idx: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_idx", int(self.source_idx))
+
+    @property
+    def note_index(self) -> int:
+        """Alias useful to callers that call the identity a note index."""
+        return self.source_idx
+
+
+
+
+@dataclass(frozen=True)
+class ScoreNote:
+    """One immutable note parsed from a non-drum MIDI track."""
+
+    onset_sec: float
+    offset_sec: float
+    pitch_midi: int
+    source_idx: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "onset_sec", float(self.onset_sec))
+        object.__setattr__(self, "offset_sec", float(self.offset_sec))
+        object.__setattr__(self, "pitch_midi", int(round(float(self.pitch_midi))))
+        object.__setattr__(self, "source_idx", int(self.source_idx))
+
+    @property
+    def identity(self) -> ScoreNoteId:
+        return ScoreNoteId(self.source_idx)
+
+    @property
+    def note_id(self) -> ScoreNoteId:
+        return self.identity
 
 
 @dataclass(frozen=True)
@@ -31,9 +83,8 @@ class TabNote:
     """One playable guitar note in standard tuning.
 
     ``string_idx`` uses low-to-high indexing (0 is low E), while the renderer
-    displays strings in the conventional high-to-low order.  The frozen data
-    class keeps assignments independent of, and unable to mutate, MIDI note
-    objects supplied by a caller.
+    displays strings in the conventional high-to-low order.  ``note_id``
+    retains the immutable source identity when this note came from MIDI.
     """
 
     onset_sec: float
@@ -41,6 +92,7 @@ class TabNote:
     pitch_midi: int
     string_idx: int
     fret_idx: int
+    note_id: ScoreNoteId | None = None
 
     def __post_init__(self) -> None:
         # MIDI pitches are semitone values throughout the public API.  Coerce
@@ -50,14 +102,24 @@ class TabNote:
         object.__setattr__(self, "pitch_midi", int(round(float(self.pitch_midi))))
         object.__setattr__(self, "string_idx", int(self.string_idx))
         object.__setattr__(self, "fret_idx", int(self.fret_idx))
+        if self.note_id is not None and not isinstance(self.note_id, ScoreNoteId):
+            object.__setattr__(self, "note_id", ScoreNoteId(int(self.note_id)))
+
+    @property
+    def identity(self) -> ScoreNoteId | None:
+        return self.note_id
+
+    @property
+    def source_idx(self) -> int | None:
+        return None if self.note_id is None else self.note_id.source_idx
 
 
 @dataclass(frozen=True)
-class _SourceNote:
-    onset_sec: float
-    offset_sec: float
-    pitch_midi: int
-    source_idx: int
+class PositionLikelihood:
+    """Positive visual support for one exact playable position."""
+
+    position: PlayablePosition
+    likelihood: float
 
 
 @dataclass(frozen=True)
@@ -67,26 +129,38 @@ class _ChordCandidate:
     notes: tuple[TabNote, ...]
 
     @property
-    def key(self) -> tuple[tuple[int, int, int, int], ...]:
+    def key(self) -> tuple[tuple[int, int, int, int, int], ...]:
         return tuple(
-            (note.pitch_midi, note.string_idx, note.fret_idx, i)
+            (
+                note.pitch_midi,
+                note.string_idx,
+                note.fret_idx,
+                -1 if note.note_id is None else note.note_id.source_idx,
+                i,
+            )
             for i, note in enumerate(self.notes)
         )
 
 
-def _midi_to_positions(pitch_midi: int) -> tuple[tuple[int, int], ...]:
-    """Return playable ``(string_idx, fret_idx)`` positions for a pitch."""
+def playable_positions(pitch_midi: int) -> tuple[PlayablePosition, ...]:
+    """Return every exact standard-tuning position for a MIDI pitch."""
+    try:
+        pitch = int(round(float(pitch_midi)))
+    except (TypeError, ValueError, OverflowError):
+        return ()
     positions = []
     for string_idx, tuning_pitch in enumerate(STANDARD_TUNING_MIDI):
-        fret_idx = pitch_midi - tuning_pitch
+        fret_idx = pitch - tuning_pitch
         if 0 <= fret_idx <= MAX_FRET:
-            positions.append((string_idx, fret_idx))
+            positions.append(PlayablePosition(string_idx, fret_idx))
     # Low-fret positions make a useful deterministic tie-break and give the
     # assignment search a physically sensible first candidate.
-    return tuple(sorted(positions, key=lambda position: (position[1], position[0])))
+    return tuple(sorted(positions, key=lambda position: (position.fret_idx, position.string_idx)))
 
 
-def _group_source_notes(notes: Sequence[_SourceNote]) -> list[tuple[_SourceNote, ...]]:
+
+
+def _group_source_notes(notes: Sequence[ScoreNote]) -> list[tuple[ScoreNote, ...]]:
     """Group notes whose onsets are close enough to be one chord event."""
     ordered = sorted(
         notes,
@@ -97,7 +171,7 @@ def _group_source_notes(notes: Sequence[_SourceNote]) -> list[tuple[_SourceNote,
             note.source_idx,
         ),
     )
-    groups: list[list[_SourceNote]] = []
+    groups: list[list[ScoreNote]] = []
     group_start: float | None = None
     for note in ordered:
         if (
@@ -131,10 +205,22 @@ def _transition_cost(previous: _ChordCandidate, current: _ChordCandidate) -> flo
         return 0.0
 
     previous_notes = sorted(
-        previous.notes, key=lambda note: (note.pitch_midi, note.string_idx, note.fret_idx)
+        previous.notes,
+        key=lambda note: (
+            note.pitch_midi,
+            note.string_idx,
+            note.fret_idx,
+            -1 if note.note_id is None else note.note_id.source_idx,
+        ),
     )
     current_notes = sorted(
-        current.notes, key=lambda note: (note.pitch_midi, note.string_idx, note.fret_idx)
+        current.notes,
+        key=lambda note: (
+            note.pitch_midi,
+            note.string_idx,
+            note.fret_idx,
+            -1 if note.note_id is None else note.note_id.source_idx,
+        ),
     )
     paired = min(len(previous_notes), len(current_notes))
     cost = 0.0
@@ -152,17 +238,136 @@ def _transition_cost(previous: _ChordCandidate, current: _ChordCandidate) -> flo
     return cost
 
 
-def _build_chord_candidates(group: Sequence[_SourceNote]) -> list[_ChordCandidate]:
+def _coerce_position(value: object) -> PlayablePosition | None:
+    if isinstance(value, PositionLikelihood):
+        value = value.position
+    if isinstance(value, PlayablePosition):
+        return value
+    try:
+        if isinstance(value, (tuple, list)) and len(value) == 2:
+            return PlayablePosition(int(value[0]), int(value[1]))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return None
+
+
+def _entries_for_likelihood_value(value: object) -> tuple[tuple[PlayablePosition, float], ...]:
+    if isinstance(value, PositionLikelihood):
+        values: object = ((value.position, value.likelihood),)
+    elif isinstance(value, Mapping) and {"string_idx", "fret_idx", "likelihood"} <= set(value):
+        values = (((
+            value["string_idx"],
+            value["fret_idx"],
+        ), value["likelihood"]),)
+    elif isinstance(value, Mapping):
+        values = tuple(value.items())
+    else:
+        try:
+            values = tuple(value)  # type: ignore[arg-type]
+        except TypeError:
+            return ()
+    entries: dict[PlayablePosition, float] = {}
+    for raw_entry in values:  # type: ignore[union-attr]
+        if isinstance(raw_entry, PositionLikelihood):
+            raw_position, raw_likelihood = raw_entry.position, raw_entry.likelihood
+        elif isinstance(raw_entry, Mapping) and {"string_idx", "fret_idx", "likelihood"} <= set(raw_entry):
+            raw_position = (raw_entry["string_idx"], raw_entry["fret_idx"])
+            raw_likelihood = raw_entry["likelihood"]
+        elif isinstance(raw_entry, Mapping) and "position" in raw_entry and "likelihood" in raw_entry:
+            raw_position = raw_entry["position"]
+            raw_likelihood = raw_entry["likelihood"]
+        else:
+            try:
+                if len(raw_entry) == 3:
+                    raw_position = (raw_entry[0], raw_entry[1])
+                    raw_likelihood = raw_entry[2]
+                else:
+                    raw_position, raw_likelihood = raw_entry
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+        position = _coerce_position(raw_position)
+        try:
+            likelihood = float(
+                raw_likelihood.likelihood
+                if isinstance(raw_likelihood, PositionLikelihood)
+                else raw_likelihood
+            )
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            continue
+        # Missing, invalid, open-string, and nonpositive evidence is neutral.
+        if position is None or not math.isfinite(likelihood) or likelihood <= 0.0:
+            continue
+        if not (0 <= position.string_idx < len(STANDARD_TUNING_MIDI)):
+            continue
+        if not (0 < position.fret_idx <= MAX_FRET):
+            continue
+        entries[position] = max(entries.get(position, 0.0), min(likelihood, 1.0))
+    return tuple(sorted(entries.items(), key=lambda item: (item[0].string_idx, item[0].fret_idx)))
+
+
+def _prepare_likelihoods(
+    source_notes: Sequence[ScoreNote],
+    position_likelihoods: Mapping[object, object] | None,
+) -> dict[int, tuple[tuple[PlayablePosition, float], ...]]:
+    if not isinstance(position_likelihoods, Mapping):
+        return {}
+    prepared: dict[int, tuple[tuple[PlayablePosition, float], ...]] = {}
+    for note in source_notes:
+        value = None
+        # Support the immutable identity, the complete source note, and the
+        # integer index without making callers depend on one key convention.
+        for key in (note.identity, note, note.source_idx):
+            try:
+                if key in position_likelihoods:
+                    value = position_likelihoods[key]
+                    break
+            except (TypeError, ValueError):
+                continue
+        entries = _entries_for_likelihood_value(value)
+        if entries:
+            prepared[note.source_idx] = entries
+    return prepared
+
+
+def _candidate_visual_cost(
+    candidate: _ChordCandidate,
+    prepared_likelihoods: Mapping[int, tuple[tuple[PlayablePosition, float], ...]],
+) -> float:
+    """Return a bounded visual cost (negative support is a bounded reward)."""
+    cost = 0.0
+    for note in candidate.notes:
+        position = PlayablePosition(note.string_idx, note.fret_idx)
+        for supported_position, likelihood in prepared_likelihoods.get(note.source_idx, ()):
+            if supported_position == position:
+                cost -= _VISUAL_COST_WEIGHT * likelihood
+                break
+    return float(max(-_VISUAL_COST_WEIGHT * len(candidate.notes), cost))
+
+
+def _build_chord_candidates(
+    group: Sequence[ScoreNote],
+    prepared_likelihoods: Mapping[int, tuple[tuple[PlayablePosition, float], ...]] | None = None,
+) -> list[_ChordCandidate]:
     """Enumerate deterministic maximum-cardinality assignments for a chord."""
-    options = {
-        note.source_idx: _midi_to_positions(note.pitch_midi)
-        for note in group
-    }
-    # Notes with fewer choices are assigned first; this prunes impossible
-    # duplicate-pitch chords without changing the eventual tie-break key.
+    prepared_likelihoods = prepared_likelihoods or {}
+    options: dict[int, tuple[PlayablePosition, ...]] = {}
+    for note in group:
+        base_positions = playable_positions(note.pitch_midi)
+        evidence = prepared_likelihoods.get(note.source_idx, ())
+        if evidence:
+            supported = {position for position, _likelihood in evidence}
+            base_positions = tuple(
+                position for position in base_positions if position in supported
+            ) + tuple(
+                position for position in base_positions if position not in supported
+            )
+        options[note.source_idx] = base_positions
+    # Evidence-bearing notes and their supported positions are visited first
+    # so the bounded candidate list cannot prune a visually supported choice.
     ordered = sorted(
         group,
         key=lambda note: (
+            0 if prepared_likelihoods.get(note.source_idx) else 1,
             len(options[note.source_idx]),
             note.pitch_midi,
             note.onset_sec,
@@ -174,7 +379,7 @@ def _build_chord_candidates(group: Sequence[_SourceNote]) -> list[_ChordCandidat
 
     best_count = -1
     candidates: list[_ChordCandidate] = []
-    seen: set[tuple[tuple[int, int, int, int], ...]] = set()
+    seen: set[tuple[tuple[int, int, int, int, int], ...]] = set()
 
     def visit(
         index: int,
@@ -203,6 +408,7 @@ def _build_chord_candidates(group: Sequence[_SourceNote]) -> list[_ChordCandidat
                             note.pitch_midi,
                             note.string_idx,
                             note.fret_idx,
+                            -1 if note.note_id is None else note.note_id.source_idx,
                         ),
                     )
                 )
@@ -233,6 +439,7 @@ def _build_chord_candidates(group: Sequence[_SourceNote]) -> list[_ChordCandidat
                         note.pitch_midi,
                         string_idx,
                         fret_idx,
+                        note.identity,
                     ),
                 ),
             )
@@ -242,14 +449,25 @@ def _build_chord_candidates(group: Sequence[_SourceNote]) -> list[_ChordCandidat
         visit(index + 1, used_strings, assigned)
 
     visit(0, frozenset(), ())
-    candidates.sort(key=lambda candidate: (_candidate_intrinsic_cost(candidate), candidate.key))
+    candidates.sort(
+        key=lambda candidate: (
+            _candidate_intrinsic_cost(candidate) + _candidate_visual_cost(candidate, prepared_likelihoods),
+            candidate.key,
+        )
+    )
     return candidates
 
 
-def _assign_source_notes(source_notes: Sequence[_SourceNote]) -> list[TabNote]:
+def _assign_source_notes(
+    source_notes: Sequence[ScoreNote],
+    position_likelihoods: Mapping[object, object] | None = None,
+) -> list[TabNote]:
     """Assign grouped source notes using dynamic programming over positions."""
+    prepared_likelihoods = _prepare_likelihoods(source_notes, position_likelihoods)
     groups = _group_source_notes(source_notes)
-    candidate_groups = [_build_chord_candidates(group) for group in groups]
+    candidate_groups = [
+        _build_chord_candidates(group, prepared_likelihoods) for group in groups
+    ]
     candidate_groups = [group for group in candidate_groups if group]
     if not candidate_groups:
         return []
@@ -258,7 +476,11 @@ def _assign_source_notes(source_notes: Sequence[_SourceNote]) -> list[TabNote]:
     # rather than selecting a locally cheapest fingering for every chord.
     costs: list[list[float]] = []
     previous_indices: list[list[int | None]] = []
-    first_costs = [_candidate_intrinsic_cost(candidate) for candidate in candidate_groups[0]]
+    first_costs = [
+        _candidate_intrinsic_cost(candidate)
+        + _candidate_visual_cost(candidate, prepared_likelihoods)
+        for candidate in candidate_groups[0]
+    ]
     costs.append(first_costs)
     previous_indices.append([None] * len(first_costs))
 
@@ -267,8 +489,11 @@ def _assign_source_notes(source_notes: Sequence[_SourceNote]) -> list[TabNote]:
         group_costs: list[float] = []
         group_previous: list[int | None] = []
         for candidate in group:
-            best: tuple[float, int, tuple[tuple[int, int, int, int], ...]] | None = None
-            intrinsic = _candidate_intrinsic_cost(candidate)
+            best: tuple[float, int, tuple[tuple[int, int, int, int, int], ...]] | None = None
+            intrinsic = (
+                _candidate_intrinsic_cost(candidate)
+                + _candidate_visual_cost(candidate, prepared_likelihoods)
+            )
             for previous_index, previous_candidate in enumerate(candidate_groups[group_index - 1]):
                 total = (
                     costs[group_index - 1][previous_index]
@@ -305,12 +530,13 @@ def _assign_source_notes(source_notes: Sequence[_SourceNote]) -> list[TabNote]:
             note.offset_sec,
             note.string_idx,
             note.fret_idx,
+            -1 if note.note_id is None else note.note_id.source_idx,
         )
     )
     return assigned
 
 
-def _read_midi_source(path: str | Path) -> list[_SourceNote]:
+def _read_midi_source(path: str | Path) -> list[ScoreNote]:
     try:
         import pretty_midi
     except ImportError as exc:
@@ -323,7 +549,7 @@ def _read_midi_source(path: str | Path) -> list[_SourceNote]:
     except (OSError, ValueError, RuntimeError) as exc:
         raise GuitarTabError(f"Could not read MIDI file {path}: {exc}") from exc
 
-    source_notes: list[_SourceNote] = []
+    source_notes: list[ScoreNote] = []
     source_idx = 0
     for instrument in midi.instruments:
         if bool(getattr(instrument, "is_drum", False)):
@@ -340,22 +566,58 @@ def _read_midi_source(path: str | Path) -> list[_SourceNote]:
             if offset_sec <= onset_sec:
                 continue
             source_notes.append(
-                _SourceNote(onset_sec, offset_sec, pitch_midi, source_idx)
+                ScoreNote(onset_sec, offset_sec, pitch_midi, source_idx)
             )
             source_idx += 1
     return source_notes
+def read_midi_notes(path: str | Path) -> tuple[ScoreNote, ...]:
+    """Read immutable score notes while preserving duplicate-note identities."""
+    return tuple(_read_midi_source(path))
 
 
-def midi_to_tab_notes(path: str | Path) -> list[TabNote]:
-    """Parse non-drum MIDI notes with finite, positive durations.
+def assign_tab_notes(
+    notes: Sequence[ScoreNote],
+    position_likelihoods: Mapping[object, object] | None = None,
+) -> list[TabNote]:
+    """Assign score notes with optional exact-position visual likelihoods.
 
-    Notes outside standard-tuned frets 0--24 and notes whose offset is not
-    after their onset are omitted.  If a simultaneous group contains more
-    playable notes than six strings, the deterministic maximum-cardinality
-    assignment omits the excess notes.  Source MIDI note objects are read
-    only and never modified.
+    Likelihoods are keyed by ``ScoreNoteId`` (integer source indices are also
+    accepted for convenience), then map exact ``(string_idx, fret_idx)``
+    positions to positive finite values.  Invalid, missing, and nonpositive
+    values are neutral, so omitting visual evidence reproduces the original
+    audio-only assignment.
     """
-    return _assign_source_notes(_read_midi_source(path))
+    source_notes: list[ScoreNote] = []
+    for index, note in enumerate(notes):
+        if isinstance(note, ScoreNote):
+            source_notes.append(note)
+            continue
+        try:
+            source_notes.append(
+                ScoreNote(
+                    note.onset_sec,
+                    note.offset_sec,
+                    note.pitch_midi,
+                    getattr(note, "source_idx", index),
+                )
+            )
+        except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+            raise GuitarTabError("assign_tab_notes received an invalid score note.") from exc
+    return _assign_source_notes(source_notes, position_likelihoods)
+
+
+
+
+def midi_to_tab_notes(
+    path: str | Path,
+    position_likelihoods: Mapping[object, object] | None = None,
+) -> list[TabNote]:
+    """Parse and assign MIDI notes, optionally ranking exact visual positions.
+
+    The default path is intentionally unchanged: no usable likelihood adds
+    zero cost and therefore retains the established deterministic DP output.
+    """
+    return _assign_source_notes(_read_midi_source(path), position_likelihoods)
 
 
 def _group_tab_notes(notes: Iterable[TabNote]) -> list[tuple[TabNote, ...]]:
@@ -439,7 +701,14 @@ __all__ = [
     "ONSET_GROUP_TOLERANCE_SEC",
     "STANDARD_TUNING_MIDI",
     "TAB_STRING_LABELS",
+    "PlayablePosition",
+    "PositionLikelihood",
+    "ScoreNote",
+    "ScoreNoteId",
     "TabNote",
+    "assign_tab_notes",
     "midi_to_tab_notes",
+    "playable_positions",
+    "read_midi_notes",
     "render_ascii_tab",
 ]

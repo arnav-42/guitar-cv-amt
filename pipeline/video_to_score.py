@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import wave
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
-from pipeline.guitar_tab import GuitarTabError, midi_to_tab_notes, render_ascii_tab
+from pipeline.guitar_tab import (
+    GuitarTabError,
+    assign_tab_notes,
+    midi_to_tab_notes,
+    read_midi_notes,
+    render_ascii_tab,
+)
+from pipeline.visual_fingering import VisualExtractionError
 
 SAMPLE_RATE = 16_000
 MODEL_NAMES = ("mr_mt3", "mt3_pytorch", "yourmt3")
@@ -216,13 +224,275 @@ def transcribe_audio(
     midi.save(str(midi_path))
 
 
-def write_tablature(midi_path: Path, tablature_path: Path) -> None:
-    """Convert a transcribed MIDI file to conventional ASCII guitar tab."""
+def write_tablature(
+    midi_path: Path,
+    tablature_path: Path,
+    *,
+    position_likelihoods: Mapping[object, object] | None = None,
+) -> None:
+    """Convert a transcribed MIDI into conventional ASCII guitar tab."""
     try:
-        notes = midi_to_tab_notes(midi_path)
+        notes = midi_to_tab_notes(midi_path, position_likelihoods)
     except GuitarTabError as exc:
         raise PipelineError(str(exc)) from exc
     tablature_path.write_text(render_ascii_tab(notes) + "\n", encoding="utf-8")
+
+
+def _default_visual_paths() -> tuple[Path, Path]:
+    root = Path(__file__).resolve().parents[1]
+    return root / "pipeline" / "yolo_weights_best.pt", root / "scripts" / "hand_landmarker.task"
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert diagnostics to finite JSON-compatible primitive values."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if np.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    try:
+        if hasattr(value, "item"):
+            return _json_safe(value.item())
+        if hasattr(value, "tolist"):
+            return _json_safe(value.tolist())
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def _fallback_visual_diagnostics(
+    *,
+    reason: str,
+    yolo_weights: Path,
+    hand_model: Path,
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "status": "fallback",
+        "accepted": False,
+        "reason": str(reason),
+        "model_paths": {
+            "yolo_weights": str(yolo_weights),
+            "hand_model": str(hand_model),
+        },
+        "config": dict(config),
+        "counts": {
+            "events_seen": 0,
+            "events_supported": 0,
+            "frames_inspected": 0,
+            "frames_with_grid": 0,
+            "notes_with_visual_evidence": 0,
+        },
+        "quality_summaries": [],
+        "alignment": None,
+        "per_note": [],
+    }
+
+
+def _write_visual_diagnostics(path: Path, diagnostics: Mapping[str, Any]) -> None:
+    path.write_text(
+        json.dumps(_json_safe(diagnostics), sort_keys=True, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _visual_result_diagnostics(result: Any) -> dict[str, Any]:
+    if hasattr(result, "to_diagnostics"):
+        return dict(result.to_diagnostics())
+    if isinstance(result, Mapping):
+        if isinstance(result.get("diagnostics"), Mapping):
+            return dict(result["diagnostics"])
+        return dict(result)
+    return _fallback_visual_diagnostics(
+        reason="visual analyzer returned no diagnostics",
+        yolo_weights=Path(""),
+        hand_model=Path(""),
+        config={},
+    )
+
+
+def _visual_result_likelihoods(result: Any) -> Mapping[object, object]:
+    if hasattr(result, "position_likelihoods"):
+        return result.position_likelihoods
+    if isinstance(result, Mapping):
+        return result.get("position_likelihoods", {})
+    return {}
+
+
+def _likelihood_entries(value: object) -> tuple[tuple[object, object], ...]:
+    if hasattr(value, "position") and hasattr(value, "likelihood"):
+        return ((value.position, value.likelihood),)
+    if isinstance(value, Mapping):
+        keys = set(value)
+        if {"string_idx", "fret_idx", "likelihood"} <= keys:
+            return (((value["string_idx"], value["fret_idx"]), value["likelihood"]),)
+        if {"position", "likelihood"} <= keys:
+            return ((value["position"], value["likelihood"]),)
+        return tuple(value.items())
+    if isinstance(value, (tuple, list)):
+        if len(value) == 3 and not isinstance(value[0], (tuple, list, Mapping)):
+            return (((value[0], value[1]), value[2]),)
+        return tuple(entry for entry in value if isinstance(entry, (tuple, list)) and len(entry) == 2)
+    try:
+        return tuple(entry for entry in value if isinstance(entry, (tuple, list)) and len(entry) == 2)  # type: ignore[union-attr]
+    except TypeError:
+        return ()
+
+
+def _position_pair(value: object) -> tuple[int, int] | None:
+    if hasattr(value, "string_idx") and hasattr(value, "fret_idx"):
+        raw = (value.string_idx, value.fret_idx)
+    elif isinstance(value, Mapping):
+        if not {"string_idx", "fret_idx"} <= set(value):
+            return None
+        raw = (value["string_idx"], value["fret_idx"])
+    elif isinstance(value, (tuple, list)) and len(value) == 2:
+        raw = (value[0], value[1])
+    else:
+        return None
+    try:
+        return int(raw[0]), int(raw[1])
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _visual_likelihood_for_position(
+    likelihoods: Mapping[object, object],
+    note: Any,
+    string_idx: int,
+    fret_idx: int,
+) -> float | None:
+    if not isinstance(likelihoods, Mapping):
+        return None
+    raw_values: object = None
+    for key in (getattr(note, "identity", None), note, getattr(note, "source_idx", None)):
+        if key is None:
+            continue
+        try:
+            if key in likelihoods:
+                raw_values = likelihoods[key]
+                break
+        except (TypeError, ValueError):
+            continue
+    if raw_values is None:
+        return None
+    for raw_position, raw_likelihood in _likelihood_entries(raw_values):
+        if _position_pair(raw_position) != (string_idx, fret_idx):
+            continue
+        try:
+            likelihood = float(
+                raw_likelihood.likelihood
+                if hasattr(raw_likelihood, "likelihood")
+                else raw_likelihood
+            )
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if np.isfinite(likelihood) and likelihood > 0.0:
+            return likelihood
+    return None
+
+
+def _count_selected_visual_notes(
+    notes: Sequence[Any],
+    assigned_notes: Sequence[Any],
+    likelihoods: Mapping[object, object],
+) -> int:
+    """Count final notes whose exact assigned positions have positive evidence."""
+    selected_by_index = {
+        int(note.note_id.source_idx): note
+        for note in assigned_notes
+        if getattr(note, "note_id", None) is not None
+    }
+    count = 0
+    for note in notes:
+        selected = selected_by_index.get(int(note.source_idx))
+        if selected is None:
+            continue
+        if (
+            _visual_likelihood_for_position(
+                likelihoods,
+                note,
+                int(selected.string_idx),
+                int(selected.fret_idx),
+            )
+            is not None
+        ):
+            count += 1
+    return count
+
+
+def _overwrite_visual_diagnostics(
+    diagnostics: dict[str, Any],
+    notes: Sequence[Any],
+    assigned_notes: Sequence[Any],
+    likelihoods: Mapping[object, object],
+    *,
+    accepted: bool,
+) -> int:
+    """Make per-note diagnostics reflect the assignment actually rendered."""
+    per_note = [
+        dict(item)
+        for item in diagnostics.get("per_note", ())
+        if isinstance(item, Mapping)
+    ]
+    by_index: dict[int, dict[str, Any]] = {}
+    for item in per_note:
+        try:
+            source_idx = int(item["source_idx"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        by_index[source_idx] = item
+    selected_by_index = {
+        int(note.note_id.source_idx): note
+        for note in assigned_notes
+        if getattr(note, "note_id", None) is not None
+    }
+    visual_count = 0
+    note_indices = set()
+    for note in notes:
+        source_idx = int(note.source_idx)
+        note_indices.add(source_idx)
+        item = by_index.setdefault(source_idx, {"source_idx": source_idx})
+        selected = selected_by_index.get(source_idx)
+        if selected is None:
+            item["source"] = "audio"
+            item["chosen"] = None
+            continue
+        likelihood = (
+            _visual_likelihood_for_position(
+                likelihoods,
+                note,
+                selected.string_idx,
+                selected.fret_idx,
+            )
+            if accepted
+            else None
+        )
+        chosen = {
+            "string_idx": int(selected.string_idx),
+            "fret_idx": int(selected.fret_idx),
+        }
+        if likelihood is not None:
+            visual_count += 1
+            chosen["likelihood"] = likelihood
+        item["chosen"] = chosen
+        item["source"] = "visual" if likelihood is not None else "audio"
+    for source_idx, item in by_index.items():
+        if source_idx not in note_indices:
+            item["source"] = "audio"
+            item["chosen"] = None
+    diagnostics["per_note"] = [
+        item for _source_idx, item in sorted(by_index.items(), key=lambda pair: pair[0])
+    ]
+    counts = diagnostics.get("counts")
+    updated_counts = dict(counts) if isinstance(counts, Mapping) else {}
+    updated_counts["notes_with_visual_evidence"] = visual_count
+    diagnostics["counts"] = updated_counts
+    return visual_count
 
 
 def write_musicxml(midi_path: Path, musicxml_path: Path) -> None:
@@ -263,18 +533,59 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Replace existing audio, MIDI, tablature.txt, and MusicXML outputs",
+        help="Replace enabled audio, MIDI, tablature, MusicXML, and visual outputs",
+    )
+    parser.add_argument(
+        "--visual",
+        action="store_true",
+        help="Opt in to local-video YOLO/MediaPipe fingering evidence after audio transcription",
+    )
+    parser.add_argument(
+        "--require-visual",
+        action="store_true",
+        help="Fail instead of falling back when no accepted visual assignment is produced",
+    )
+    parser.add_argument(
+        "--yolo-weights",
+        type=Path,
+        help="YOLO fretboard segmentation checkpoint (default: repository pipeline/yolo_weights_best.pt)",
+    )
+    parser.add_argument(
+        "--hand-model",
+        type=Path,
+        help="MediaPipe Tasks hand model (default: repository scripts/hand_landmarker.task)",
     )
     return parser
 
 
-def run(source: str, output_dir: Path, *, model_name: str, device: str, overwrite: bool) -> None:
+def run(
+    source: str,
+    output_dir: Path,
+    *,
+    model_name: str,
+    device: str,
+    overwrite: bool,
+    visual: bool = False,
+    require_visual: bool = False,
+    yolo_weights: Path | None = None,
+    hand_model: Path | None = None,
+    visual_analyzer: Any | None = None,
+) -> None:
+    visual_enabled = bool(visual or require_visual)
     youtube_source = is_youtube_url(source)
+    # Reject before creating an output directory, downloading, extracting, or
+    # invoking MT3.  The visual path is intentionally local-video only.
+    if visual_enabled and youtube_source:
+        raise PipelineError("--visual is supported only for local video files; YouTube remains audio-only.")
     media_path = Path(source)
     if not youtube_source and not media_path.is_file():
         raise PipelineError(f"Video file does not exist: {media_path}")
     if youtube_source and youtube_video_id(source) is None:
         raise PipelineError("Provide a single YouTube video URL, not a playlist URL.")
+
+    default_yolo, default_hand = _default_visual_paths()
+    visual_yolo = Path(yolo_weights) if yolo_weights is not None else default_yolo
+    visual_hand = Path(hand_model) if hand_model is not None else default_hand
 
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs = {
@@ -283,6 +594,11 @@ def run(source: str, output_dir: Path, *, model_name: str, device: str, overwrit
         "tablature": output_dir / "tablature.txt",
         "sheet music": output_dir / "sheet.musicxml",
     }
+    if visual_enabled:
+        outputs.update({
+            "audio baseline tablature": output_dir / "audio_tablature.txt",
+            "visual diagnostics": output_dir / "visual_diagnostics.json",
+        })
     existing = [str(path) for path in outputs.values() if path.exists()]
     if existing and not overwrite:
         raise PipelineError(
@@ -308,9 +624,120 @@ def run(source: str, output_dir: Path, *, model_name: str, device: str, overwrit
         device=device,
     )
     print("Converting MIDI to ASCII tablature...")
-    write_tablature(outputs["MIDI"], outputs["tablature"])
+    if not visual_enabled:
+        # Preserve the existing audio-only call path and output bytes exactly.
+        write_tablature(outputs["MIDI"], outputs["tablature"])
+    else:
+        write_tablature(outputs["MIDI"], outputs["audio baseline tablature"])
+        outputs["tablature"].write_bytes(outputs["audio baseline tablature"].read_bytes())
+
     print("Converting MIDI to MusicXML...")
     write_musicxml(outputs["MIDI"], outputs["sheet music"])
+
+    if visual_enabled:
+        diagnostics: dict[str, Any]
+        accepted = False
+        fallback_reason = "visual analyzer did not produce an accepted assignment"
+        notes: tuple[Any, ...] = ()
+        final_notes: list[Any] = []
+        likelihoods: Mapping[object, object] = {}
+        try:
+            notes = read_midi_notes(outputs["MIDI"])
+            if visual_analyzer is None:
+                from pipeline import visual_fingering
+
+                result = visual_fingering.analyze_video(
+                    media_path,
+                    notes,
+                    yolo_weights=visual_yolo,
+                    hand_model=visual_hand,
+                )
+            else:
+                result = visual_analyzer(
+                    media_path,
+                    notes,
+                    yolo_weights=visual_yolo,
+                    hand_model=visual_hand,
+                )
+            if isinstance(result, Mapping):
+                accepted = bool(result.get("accepted", False))
+                fallback_reason = str(result.get("reason", fallback_reason))
+            else:
+                accepted = bool(getattr(result, "accepted", False))
+                fallback_reason = str(getattr(result, "reason", fallback_reason))
+            likelihoods = _visual_result_likelihoods(result)
+            if accepted and likelihoods:
+                final_notes = assign_tab_notes(notes, position_likelihoods=likelihoods)
+                if _count_selected_visual_notes(notes, final_notes, likelihoods) > 0:
+                    outputs["tablature"].write_text(
+                        render_ascii_tab(final_notes) + "\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    accepted = False
+                    fallback_reason = (
+                        "accepted visual evidence selected zero evidence-supported final positions"
+                    )
+                    final_notes = assign_tab_notes(notes)
+                    outputs["tablature"].write_bytes(
+                        outputs["audio baseline tablature"].read_bytes()
+                    )
+            else:
+                accepted = False
+                final_notes = assign_tab_notes(notes)
+                outputs["tablature"].write_bytes(outputs["audio baseline tablature"].read_bytes())
+            diagnostics = _visual_result_diagnostics(result)
+            diagnostics.setdefault("schema_version", "1.0")
+            diagnostics["status"] = "accepted" if accepted else "fallback"
+            diagnostics["accepted"] = bool(accepted)
+            if not accepted:
+                diagnostics["reason"] = fallback_reason
+            diagnostics.setdefault(
+                "model_paths",
+                {"yolo_weights": str(visual_yolo), "hand_model": str(visual_hand)},
+            )
+            diagnostics.setdefault("config", {"visual": True})
+            diagnostics.setdefault(
+                "counts",
+                {
+                    "events_seen": 0,
+                    "events_supported": 0,
+                    "frames_inspected": 0,
+                    "frames_with_grid": 0,
+                    "notes_with_visual_evidence": 0,
+                },
+            )
+            diagnostics.setdefault("quality_summaries", [])
+            diagnostics.setdefault("alignment", None)
+            diagnostics.setdefault("per_note", [])
+        except (VisualExtractionError, ImportError, OSError, ValueError, RuntimeError) as exc:
+            fallback_reason = f"{type(exc).__name__}: {exc}"
+            accepted = False
+            likelihoods = {}
+            try:
+                notes = read_midi_notes(outputs["MIDI"])
+                final_notes = midi_to_tab_notes(outputs["MIDI"])
+            except (GuitarTabError, ImportError, OSError, ValueError, RuntimeError):
+                notes = ()
+                final_notes = []
+            outputs["tablature"].write_bytes(outputs["audio baseline tablature"].read_bytes())
+            diagnostics = _fallback_visual_diagnostics(
+                reason=fallback_reason,
+                yolo_weights=visual_yolo,
+                hand_model=visual_hand,
+                config={"visual": True},
+            )
+        if notes:
+            _overwrite_visual_diagnostics(
+                diagnostics,
+                notes,
+                final_notes,
+                likelihoods,
+                accepted=accepted,
+            )
+        _write_visual_diagnostics(outputs["visual diagnostics"], diagnostics)
+        if require_visual and not accepted:
+            raise PipelineError(f"--require-visual: {diagnostics.get('reason', fallback_reason)}")
 
     print("Wrote:")
     for label, path in outputs.items():
@@ -336,6 +763,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_name=args.model,
             device=args.device,
             overwrite=args.overwrite,
+            visual=args.visual,
+            require_visual=args.require_visual,
+            yolo_weights=args.yolo_weights,
+            hand_model=args.hand_model,
         )
     except (PipelineError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

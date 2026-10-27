@@ -144,6 +144,50 @@ is not a guarantee of the performer's fingering. Near-simultaneous onsets (withi
 Pass `--overwrite` to replace outputs already in the chosen directory,
 including `tablature.txt`.
 
+### Optional audio-first visual fingering
+
+Visual analysis is opt-in and is available for local videos only.  Use Python
+3.10 with both optional dependency groups:
+
+```bash
+uv run --python 3.10 --extra transcription --extra visual -- \
+  python -m pipeline.video_to_score path/to/performance.mp4 \
+  --visual --output-dir output/performance
+```
+
+Visual mode always transcribes audio first.  MIDI pitch and onset timing remain
+authoritative; YOLO fretboard masks, EFA (`rectify_fretboard`), and MediaPipe
+Hands extract continuous fingertip **string rows** and test only two possible
+top-to-bottom row orders (standard-string order or its reverse).  The visual
+row choice and the authoritative MIDI pitch determine an exact playable
+`(string, fret)` candidate: the fret is derived as
+`pitch_midi - open_string_pitch`, never inferred from an EFA cell coordinate.
+The existing whole-chord, unique-string dynamic program then ranks those exact
+candidates.  The normal outputs are joined by `audio_tablature.txt` (the
+unchanged audio-only baseline) and `visual_diagnostics.json`.  Only accepted
+visual evidence may change `tablature.txt`; acceptance also requires the final
+whole-chord assignment to select at least one exact position with positive
+visual evidence.
+
+EFA quality summaries retain `lattice_accepted` as observed geometry metadata,
+but string-row evidence does not require that lattice flag.  EFA still supplies
+no absolute fret number, nut direction, or pitch/string label.
+
+If the video, model, hand landmarks, or semantic alignment is unavailable or
+ambiguous, the default is an honest fallback: `tablature.txt` is byte-for-byte
+the baseline and diagnostics records the observed failure or quality status.
+`--require-visual` turns that fallback into an error.  `--visual` rejects
+YouTube URLs before download; YouTube remains audio-only.  `--overwrite`
+protects all enabled outputs, including both tablature files and diagnostics.
+
+The bundled YOLO checkpoint (`pipeline/yolo_weights_best.pt`) and MediaPipe
+Tasks model (`scripts/hand_landmarker.task`) are repository-relative defaults.
+Fetch large files with Git LFS (`git lfs install && git lfs pull`), and install
+FFmpeg on `PATH` for audio extraction.  A static, well-lit frame with a clear
+fretboard and visible fretting fingers is the most favorable case; occlusion,
+motion blur, unusual camera angles, left-handed instruments, missing model
+files, and unsupported MediaPipe/Ultralytics runtimes can all cause fallback.
+
 ## GuitarSet benchmark tab comparisons
 
 The fixed eight-clip MT3 benchmark writes its metrics to

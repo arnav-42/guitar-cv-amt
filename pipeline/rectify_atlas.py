@@ -56,12 +56,38 @@ def predict_proposals(image, weights, confidence=.25, mask_rcnn_weights=None):
 
 
 def select_atlas(image, proposals, **kwargs):
-    """Choose evidence coverage, retaining an explicit list of alternatives."""
+    """Choose evidence coverage, retaining an explicit list of alternatives.
+
+    A malformed proposal is an expected per-instance geometry failure.  It is
+    recorded and does not prevent later proposals from being scored.  Other
+    exceptions intentionally propagate so programming errors are not hidden.
+    """
     alternatives, best = [], None
     for name, mask in proposals:
-        result = rectify_fretboard(image, mask, **kwargs)
+        try:
+            result = rectify_fretboard(image, mask, **kwargs)
+        except (ValueError, cv2.error) as exc:
+            summary = str(exc).strip() or exc.__class__.__name__
+            alternatives.append(
+                dict(
+                    proposal=name,
+                    status="failed",
+                    score=0.0,
+                    error=summary,
+                    error_type=exc.__class__.__name__,
+                )
+            )
+            continue
         if result is None:
-            alternatives.append(dict(proposal=name, status="failed", score=0.))
+            alternatives.append(
+                dict(
+                    proposal=name,
+                    status="failed",
+                    score=0.0,
+                    error="no usable fretboard geometry",
+                    error_type="GeometryFailure",
+                )
+            )
             continue
         q = result.quality
         score = ((1000 if q["status"] == "grid" else 0)

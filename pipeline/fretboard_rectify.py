@@ -63,15 +63,41 @@ def _line_candidates(gray, usable, axis):
 
     Each candidate is z(t)=a*(t-.5)+b in unit coarse coordinates. Frets use
     (t,z)=(y,x), strings use (x,y). Coverage is union support, not line count.
+    OpenCV has returned both ``(N, 4)`` and ``(N, 1, 4)`` LSD layouts across
+    supported versions; anything else is not a usable set of proposals.
     """
+    try:
+        gray = np.asarray(gray)
+        usable = np.asarray(usable)
+    except (TypeError, ValueError):
+        return []
+    if gray.ndim != 2 or usable.ndim != 2 or gray.shape != usable.shape:
+        return []
     h, w = gray.shape
-    segments = cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD).detect(gray)[0]
+    if h < 2 or w < 2:
+        return []
+    detected = cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD).detect(gray)
+    if not isinstance(detected, (tuple, list)) or not detected:
+        return []
+    segments = detected[0]
     if segments is None:
+        return []
+    try:
+        records = np.asarray(segments, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError):
+        return []
+    if records.ndim == 2 and records.shape[1] == 4:
+        records = records.reshape(-1, 4)
+    elif records.ndim == 3 and records.shape[1:] == (1, 4):
+        records = records.reshape(-1, 4)
+    else:
         return []
     groups = []
     candidates = []
-    for segment in segments[:, 0]:
-        p = segment.reshape(2, 2) / [w - 1, h - 1]
+    for record in records:
+        if not np.isfinite(record).all():
+            continue
+        p = record.reshape(2, 2) / [w - 1, h - 1]
         t, z = (p[:, 1], p[:, 0]) if axis == "frets" else (p[:, 0], p[:, 1])
         dt = t[1] - t[0]
         if abs(dt) < (0.075 if axis == "frets" else 0.035):

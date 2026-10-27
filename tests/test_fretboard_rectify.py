@@ -8,8 +8,10 @@ import cv2
 import numpy as np
 import pytest
 from PIL import Image
+from types import SimpleNamespace
 
-from pipeline.fretboard_rectify import rectify_fretboard
+from pipeline import rectify_atlas
+from pipeline.fretboard_rectify import _line_candidates, rectify_fretboard
 from pipeline.fret_detect_yolo import rectify_perspective
 from pipeline.grid_warp import warp_grid
 from pipeline.string_evidence import detect_strings
@@ -112,3 +114,100 @@ def test_model_free_cli_exports_real_image_and_inverse_geometry(tmp_path):
     assert Image.open(out/"rectified.png").size == (1024, 256)
     assert not (out/"visible_mask.png").exists()  # unknown, not "all visible"
     assert (out/"mapping.npz").is_file()
+
+
+def test_lsd_record_layouts_are_equivalent(monkeypatch):
+    gray = np.zeros((100, 100), dtype=np.uint8)
+    usable = np.ones_like(gray)
+    records = np.asarray(
+        [[20, 0, 20, 99], [45, 0, 45, 99], [70, 0, 70, 99]],
+        dtype=np.float32,
+    )
+
+    class Detector:
+        def __init__(self, segments):
+            self.segments = segments
+
+        def detect(self, _gray):
+            return self.segments, None
+
+    outputs = []
+    for layout in (records, records[:, None, :]):
+        monkeypatch.setattr(
+            cv2,
+            "createLineSegmentDetector",
+            lambda _refine, layout=layout: Detector(layout),
+        )
+        outputs.append(_line_candidates(gray, usable, "frets"))
+
+    assert len(outputs[0]) == len(outputs[1]) == 3
+    for left, right in zip(outputs[0], outputs[1]):
+        assert left.keys() == right.keys()
+        for key in ("a", "b", "support", "residual"):
+            assert left[key] == pytest.approx(right[key])
+
+
+@pytest.mark.parametrize(
+    "segments",
+    [
+        np.ones((2, 2, 2), dtype=np.float32),
+        np.ones((4,), dtype=np.float32),
+        np.asarray([["not", "numeric"]], dtype=object),
+    ],
+)
+def test_malformed_lsd_layout_degrades_to_no_candidates(monkeypatch, segments):
+    class Detector:
+        def detect(self, _gray):
+            return segments, None
+
+    monkeypatch.setattr(
+        cv2,
+        "createLineSegmentDetector",
+        lambda _refine: Detector(),
+    )
+    gray = np.zeros((32, 32), dtype=np.uint8)
+    assert _line_candidates(gray, np.ones_like(gray), "frets") == []
+
+
+def test_select_atlas_records_geometry_failure_and_continues(monkeypatch):
+    good_result = SimpleNamespace(
+        quality={
+            "status": "grid",
+            "lattice_accepted": True,
+            "observed_frets": 4,
+            "observed_strings": 6,
+        }
+    )
+
+    def fake_rectify(_image, mask, **_kwargs):
+        if mask == "bad":
+            raise ValueError("mask has no stable corners")
+        return good_result
+
+    monkeypatch.setattr(rectify_atlas, "rectify_fretboard", fake_rectify)
+    result, selected_mask, alternatives = rectify_atlas.select_atlas(
+        np.zeros((4, 4, 3), dtype=np.uint8),
+        [("bad", "bad"), ("good", "good")],
+    )
+    assert result is good_result
+    assert selected_mask == "good"
+    assert alternatives[0] == {
+        "proposal": "bad",
+        "status": "failed",
+        "score": 0.0,
+        "error": "mask has no stable corners",
+        "error_type": "ValueError",
+    }
+    assert alternatives[1]["proposal"] == "good"
+
+
+def test_select_atlas_does_not_swallow_unexpected_exceptions(monkeypatch):
+    def fake_rectify(_image, _mask, **_kwargs):
+        raise RuntimeError("programmer error")
+
+    monkeypatch.setattr(rectify_atlas, "rectify_fretboard", fake_rectify)
+    with pytest.raises(RuntimeError, match="programmer error"):
+        rectify_atlas.select_atlas(
+            np.zeros((4, 4, 3), dtype=np.uint8),
+            [("bad", "bad")],
+        )
