@@ -144,6 +144,22 @@ is not a guarantee of the performer's fingering. Near-simultaneous onsets (withi
 Pass `--overwrite` to replace outputs already in the chosen directory,
 including `tablature.txt`.
 
+### Evaluate an audio-only baseline
+
+The fixed GuitarSet subset evaluator reports framewise active-pitch metrics and
+exact string/fret tab metrics. Run the same eight clips with each supported
+MT3-Infer model; outputs and cached MIDI are kept separate by model:
+
+```bash
+uv run --python 3.10 --extra transcription -- \
+  python -m scripts.evaluate_mt3_guitarset_framewise --model yourmt3
+```
+
+Use `--model mr_mt3` or `--model mt3_pytorch` for the other baselines. YourMT3
+inference currently requires Transformers 4.44.x; the transcription extra pins
+that compatible range. Results are an audio-only GuitarSet baseline, not an
+evaluation of video fusion.
+
 ### Optional audio-first visual fingering
 
 Visual analysis is opt-in and is available for local videos only.  Use Python

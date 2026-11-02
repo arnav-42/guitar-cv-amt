@@ -29,7 +29,12 @@ from pipeline.guitar_tab import (
     midi_to_tab_notes,
     render_ascii_tab,
 )
-from pipeline.video_to_score import extract_audio, read_model_audio, transcribe_audio
+from pipeline.video_to_score import (
+    MODEL_NAMES,
+    extract_audio,
+    read_model_audio,
+    transcribe_audio,
+)
 
 
 DATASET = "jhartquist/guitarset"
@@ -768,13 +773,13 @@ def render_report(report: dict[str, Any], markdown: Path, json_path: Path) -> No
         "",
         f"Run date: {report['run_date']}",
         "",
-        f"MR-MT3 scored **{100 * score['f1']:.1f}% framewise active-pitch F1** on this fixed {report['clip_count']}-clip GuitarSet subset.",
+        f"{report['model']} scored **{100 * score['f1']:.1f}% framewise active-pitch F1** on this fixed {report['clip_count']}-clip GuitarSet subset.",
         "",
         f"Precision: {100 * score['precision']:.1f}%. Recall: {100 * score['recall']:.1f}%.",
         "",
         "The score compares active MIDI pitches at 10 ms frame centers. A pitch matches within 0.5 semitones; F1 is the harmonic mean of framewise precision and recall. This measures pitch activity overlap rather than note-by-note onset or offset accuracy.",
         "",
-        f"The subset contains {report['clip_count']} acoustic microphone recordings from {report['player_count']} players ({report['style_counts']['comp']} comp and {report['style_counts']['solo']} solo), totaling {report['audio_seconds']:.1f} seconds. The audio was converted by this repository's FFmpeg extraction path and transcribed by its MR-MT3 path.",
+        f"The subset contains {report['clip_count']} acoustic microphone recordings from {report['player_count']} players ({report['style_counts']['comp']} comp and {report['style_counts']['solo']} solo), totaling {report['audio_seconds']:.1f} seconds. The audio was converted by this repository's FFmpeg extraction path and transcribed by its {report['model']} path.",
         f"Fixed Hugging Face row ranges: {tuple(tuple(row_range) for row_range in ROW_RANGES)}; the default limit evaluates all 8 selected clips.",
         "",
         "| Track | Player | Style | Framewise active-pitch F1 | Exact tab P/R/F1 | Assignment accuracy | Ref notes | Pred MIDI | Rendered tab | Unplayable/unassigned |",
@@ -855,7 +860,7 @@ def render_report(report: dict[str, Any], markdown: Path, json_path: Path) -> No
             "Reproduce with:",
             "",
             "```bash",
-            "uv run --python 3.10 --extra transcription -- python -m scripts.evaluate_mt3_guitarset_framewise",
+            f"uv run --python 3.10 --extra transcription -- python -m scripts.evaluate_mt3_guitarset_framewise --model {report['model']}",
             "```",
             "",
             "The selected audio, MIDI files, and generated tab artifacts are cached in the system temporary directory and are not stored in the repository.",
@@ -867,22 +872,43 @@ def render_report(report: dict[str, Any], markdown: Path, json_path: Path) -> No
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", choices=MODEL_NAMES, default="mr_mt3")
     parser.add_argument("--limit", type=int, choices=(2, 4, 6, 8), default=8)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--reuse-midi", action="store_true")
     parser.add_argument("--cache-dir", type=Path, default=CACHE_DIR)
-    parser.add_argument("--markdown", type=Path, default=REPORT_MD)
-    parser.add_argument("--json", type=Path, default=REPORT_JSON)
-    parser.add_argument("--comparisons", type=Path, default=COMPARISON_REPORT_MD)
+    parser.add_argument("--markdown", type=Path)
+    parser.add_argument("--json", type=Path)
+    parser.add_argument("--comparisons", type=Path)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    audio_dir = args.cache_dir / "audio"
-    midi_dir = args.cache_dir / "midi"
-    wav_dir = args.cache_dir / "wav_16k"
-    tab_dir = args.cache_dir / "tabs"
+    model_cache_dir = (
+        args.cache_dir
+        if args.model == "mr_mt3"
+        else args.cache_dir / args.model
+    )
+    report_stem = (
+        REPORT_MD.stem
+        if args.model == "mr_mt3"
+        else f"{args.model}_guitarset_framewise_f1"
+    )
+    comparison_stem = (
+        COMPARISON_REPORT_MD.stem
+        if args.model == "mr_mt3"
+        else f"{args.model}_guitarset_tab_comparisons"
+    )
+    args.markdown = args.markdown or REPORT_MD.with_name(f"{report_stem}.md")
+    args.json = args.json or REPORT_JSON.with_name(f"{report_stem}.json")
+    args.comparisons = args.comparisons or COMPARISON_REPORT_MD.with_name(
+        f"{comparison_stem}.md"
+    )
+    audio_dir = model_cache_dir / "audio"
+    midi_dir = model_cache_dir / "midi"
+    wav_dir = model_cache_dir / "wav_16k"
+    tab_dir = model_cache_dir / "tabs"
     reference_tab_dir = tab_dir / "reference"
     predicted_tab_dir = tab_dir / "predicted"
     for directory in (
@@ -916,7 +942,7 @@ def main() -> int:
             transcribe_audio(
                 read_model_audio(model_audio),
                 midi_path,
-                model_name="mr_mt3",
+                model_name=args.model,
                 device=args.device,
             )
 
@@ -967,7 +993,7 @@ def main() -> int:
         "dataset": DATASET,
         "dataset_revision": dataset_revision,
         "row_ranges": [list(row_range) for row_range in ROW_RANGES],
-        "model": "mr_mt3",
+        "model": args.model,
         "metric": "framewise active-pitch F1",
         "frame_rate": FRAME_RATE,
         "pitch_window_semitones": PITCH_WINDOW_SEMITONES,
@@ -999,7 +1025,10 @@ def main() -> int:
     }
     render_comparison_report(report, comparison_tabs, args.comparisons)
     render_report(report, args.markdown, args.json)
-    print(f"Framewise active-pitch F1: {100 * report['score']['f1']:.1f}%")
+    print(
+        f"{args.model} framewise active-pitch F1: "
+        f"{100 * report['score']['f1']:.1f}%"
+    )
     print(f"Exact tab F1: {100 * report['tab']['score']['f1']:.1f}%")
     print(f"Wrote {args.markdown}, {args.json}, and {args.comparisons}")
     return 0
