@@ -251,6 +251,53 @@ def assign_strings(pitches, fingers, tuning, settings):
     return results
 
 
+ANCHOR_STATUSES = ("visual_match", "audio_corrected")
+CONTEXT_STATUSES = ("unresolved", "ambiguous")
+
+
+def infer_from_context(events, tuning, mode="hybrid", max_gap=3., open_cost=3.):
+    """Place unresolved/ambiguous notes near where the hand was on neighbouring notes.
+
+    Anchors are visually confirmed fretted notes. For each uncertain note, the
+    hand's fret (and string) is the time-weighted mean of the closest anchor
+    event before and after it, within max_gap seconds. The candidate nearest
+    that fret wins; an open string costs at most open_cost frets, since it is
+    reachable from any hand position. Strings already used by the same event are
+    skipped. Chosen notes get status "context_inferred" (old status kept in
+    "previous_status"); notes with no anchor in reach stay as they were.
+    """
+    key = f"{mode}_strings"
+    anchors = [(e["time"], [a for a in e[key] if a["status"] in ANCHOR_STATUSES and a["fret"]])
+               for e in events]
+    anchors = [(t, notes) for t, notes in anchors if notes]
+    for event in events:
+        t = event["time"]
+        before = [a for a in anchors if t - max_gap <= a[0] <= t]
+        after = [a for a in anchors if t <= a[0] <= t + max_gap]
+        sides = [s for s in (before[-1] if before else None, after[0] if after else None) if s]
+        if not sides:
+            continue
+        weights = [1 / (abs(at - t) + .1) for at, _ in sides]
+        hand_fret = sum(w * np.mean([a["fret"] for a in notes]) for w, (_, notes) in zip(weights, sides)) / sum(weights)
+        hand_string = sum(w * np.mean([a["string"] for a in notes]) for w, (_, notes) in zip(weights, sides)) / sum(weights)
+        for a in event[key]:
+            if a["status"] not in CONTEXT_STATUSES:
+                continue
+            used = {b["string"] for b in event[key] if b is not a and b["string"]}
+            options = [c for c in a["candidates"] if c["string"] not in used]
+            if not options:
+                continue
+
+            def cost(c):
+                frets = min(hand_fret, open_cost) if c["fret"] == 0 else abs(c["fret"] - hand_fret)
+                return frets + .1 * abs(c["string"] - hand_string)
+            best = min(options, key=cost)
+            a.update(previous_status=a["status"], status="context_inferred",
+                     string=best["string"], fret=best["fret"], finger=None,
+                     context_hand_fret=round(float(hand_fret), 2))
+    return events
+
+
 def note_events(notes, frames, settings):
     """Group close onsets; attach frames within +-delta of the first onset."""
     events, group = [], []

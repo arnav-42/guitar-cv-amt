@@ -10,6 +10,8 @@
    fretting hand in each frame.
 4. event_fusion turns each onset's frame window into one fret per finger, and
    the transcribed pitch chooses the string.
+5. Notes vision could not place (unresolved/ambiguous) take the position
+   nearest the hand on the surrounding confirmed notes ("context_inferred").
 
 The first run on a video asks for a fretboard calibration: a window opens on
 the reference frame and you click four points (or pass them with --corners).
@@ -33,7 +35,8 @@ from PIL import Image
 from pipeline.audio_visual_fusion import (ROOT, STANDARD_TUNING, BoardCalibration,
                                           FingertipDetector, track_calibration)
 from pipeline.event_fusion import (PAPER_PRIORS, FINGERS, Settings, assign_strings, draw_overlay,
-                                   estimate_events, frame_observation, load_audio_notes, note_events)
+                                   estimate_events, frame_observation, infer_from_context,
+                                   load_audio_notes, note_events)
 
 YOURMT3_PYTHON = Path.home() / "yourmt3_src/venv/bin/python"
 YOURMT3_DIR = Path.home() / "yourmt3_src/YourMT3"
@@ -217,6 +220,7 @@ def write_outputs(video, events, frames, notes, out, priors):
         Image.fromarray(draw_overlay(image, event, "hybrid")).save(out / name, quality=85)
         notes_html = "<br>".join(html.escape(f"{a['note']}: string {a['string']}, fret {a['fret']}"
                                              f"{' (' + a['finger'] + ')' if a['finger'] else ''}"
+                                             f"{' [from context]' if a['status'] == 'context_inferred' else ''}"
                                              if a["string"] else f"{a['note']}: {a['status']}")
                                  for a in event["hybrid_strings"])
         fingers = " ".join(f"{f[0].upper()}{e['fret']}" for f, e in event["hybrid"].items() if e) or "no hand"
@@ -258,6 +262,8 @@ def main(argv=None):
     parser.add_argument("--yourmt3-dir", type=Path, default=YOURMT3_DIR)
     parser.add_argument("--window-before", type=float, default=.2)
     parser.add_argument("--window-after", type=float, default=.2)
+    parser.add_argument("--no-context", action="store_true",
+                        help="leave unresolved notes unresolved instead of inferring them from neighbours")
     parser.add_argument("--overwrite", action="store_true", help="redo audio extraction and transcription")
     args = parser.parse_args(argv)
 
@@ -297,6 +303,8 @@ def main(argv=None):
     events = estimate_events(note_events(notes, frames, settings), priors, settings, "hybrid")
     for event in events:
         event["hybrid_strings"] = assign_strings(event["pitches"], event["hybrid"], calibration.tuning, settings)
+    if not args.no_context:
+        infer_from_context(events, calibration.tuning)
     write_outputs(video, events, frames, notes, out, priors)
 
     statuses = {}
