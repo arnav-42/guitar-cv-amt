@@ -409,7 +409,14 @@ def frame_predictions(events, mode):
 
 def draw_event(dataset, event, mode, out_path):
     frame = event["frames"][event["primary"]]
-    image = np.asarray(Image.open(dataset.root / frame["record"].frame_path).convert("RGB")).copy()
+    image = np.asarray(Image.open(dataset.root / frame["record"].frame_path).convert("RGB"))
+    Image.fromarray(draw_overlay(image, event, mode)).save(out_path, quality=88)
+
+
+def draw_overlay(image, event, mode):
+    """Board grid, finger chains and fused frets on the event's primary frame, cropped to the board."""
+    frame = event["frames"][event["primary"]]
+    image = image.copy()
     board, obs = frame["calibration"], frame["observation"]
     colors = dict(index=(255, 80, 80), middle=(80, 220, 80), ring=(80, 160, 255), pinkie=(255, 200, 0))
     if board:
@@ -433,7 +440,7 @@ def draw_event(dataset, event, mode, out_path):
     corners = np.asarray(board.corners if board else [[0, 0], [image.shape[1], image.shape[0]]])
     x0, y0 = np.maximum(0, corners.min(0) - 220).astype(int)
     x1, y1 = np.minimum(image.shape[1::-1], corners.max(0) + 220).astype(int)
-    Image.fromarray(image[y0:y1, x0:x1]).save(out_path, quality=88)
+    return image[y0:y1, x0:x1]
 
 
 def write_report(dataset, clip_events, metrics, priors, out, mode="hybrid"):

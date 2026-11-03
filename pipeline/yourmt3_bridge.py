@@ -5,6 +5,11 @@ Run with the YourMT3 environment, not the fusion environment:
     ~/yourmt3_src/venv/bin/python pipeline/yourmt3_bridge.py \
         --yourmt3-dir ~/yourmt3_src/YourMT3 --clips 0 3 7
 
+or, for any WAV file (as pipeline/video_fusion.py does):
+
+    ~/yourmt3_src/venv/bin/python pipeline/yourmt3_bridge.py \
+        --audio performance.wav --output performance_notes.csv
+
 YourMT3 resolves checkpoints relative to its own directory, so this script
 changes into it after resolving every input and output path. Notes are written
 in full-WAV seconds as onset,offset,pitch,program,velocity; drums are excluded.
@@ -74,9 +79,16 @@ def main(argv=None):
                         help="semitones applied before transcription, e.g. from "
                              "`python -m pipeline.event_fusion --estimate-pitch-offset 3`")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "output/yourmt3")
+    parser.add_argument("--audio", type=Path, help="transcribe this WAV instead of archive clips")
+    parser.add_argument("--output", type=Path, help="notes CSV path for --audio")
     args = parser.parse_args(argv)
     yourmt3_dir, out = args.yourmt3_dir.expanduser().resolve(), args.output_dir.resolve()
-    audio = {c: (args.dataset / "tablature_audio" / f"{c}.wav").resolve() for c in args.clips}
+    if args.audio:
+        target = (args.output or args.audio.with_name(args.audio.stem + "_notes.csv")).resolve()
+        audio, names, out = {args.audio.stem: args.audio.resolve()}, {args.audio.stem: target}, target.parent
+    else:
+        audio = {c: (args.dataset / "tablature_audio" / f"{c}.wav").resolve() for c in args.clips}
+        names = {c: out / f"{c}_notes.csv" for c in audio}
     out.mkdir(parents=True, exist_ok=True)
     os.chdir(yourmt3_dir)
     sys.path[:0] = [str(yourmt3_dir), str(yourmt3_dir / "amt/src")]
@@ -85,7 +97,7 @@ def main(argv=None):
     for clip, path in audio.items():
         start = time.time()
         notes = transcribe(model, path, args.pitch_shift)
-        target = out / f"{clip}_notes.csv"
+        target = names[clip]
         with target.open("w", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=["onset", "offset", "pitch", "program", "velocity"])
             writer.writeheader()
