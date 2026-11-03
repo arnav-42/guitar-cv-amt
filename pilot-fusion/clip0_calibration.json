@@ -1,0 +1,9 @@
+{
+  "reference_image": "archive/tablature_dataset/tablature_dataset/tablature_frames/0_0.png",
+  "image_size": [1920, 1080],
+  "corners": [[1487, 780], [940, 676], [927, 750], [1475, 837]],
+  "far_fret": 12,
+  "top_string": 6,
+  "tuning": [64, 59, 55, 50, 45, 40],
+  "provenance": "Manually estimated from visible nut, outer strings and the wire bodyward of the double-dot fret-12 cell in 0_0.png. Approximate pilot calibration; inspect overlay and adjust with --prepare. No finger-placement label arrays were read."
+}
