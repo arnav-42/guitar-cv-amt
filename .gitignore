@@ -38,3 +38,7 @@ output/
 # Local transcription outputs and downloaded model checkpoints
 /.mt3_checkpoints/
 *_transcription/
+
+# GuiFiR data (no redistribution) and third-party model code
+data/guifir/
+third_party/
