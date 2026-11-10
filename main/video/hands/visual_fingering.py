@@ -1,15 +1,16 @@
-"""Audio-constrained visual string-row evidence for local videos.
+"""Audio-constrained visual string-row and calibrated fret-region evidence.
 
-The audio MIDI remains authoritative.  This module only extracts continuous
-visual string-row contacts and converts them into bounded likelihoods for
-exact, standard-tuning playable positions.  Neural imports are intentionally
-kept inside :func:`extract_visual_events` so the audio-only pipeline has no
-visual startup cost.
+The audio MIDI remains authoritative. The module extracts continuous string
+rows and, with a nut/numbered-fret calibration, absolute fret regions. It
+converts contacts into likelihoods for exact standard-tuning positions.
+Neural imports are kept inside :func:`extract_visual_events` so the audio-only
+pipeline has no visual startup cost.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
 from pathlib import Path
 from types import MappingProxyType
@@ -23,6 +24,7 @@ from main.audio.guitar_tab import (
     ScoreNoteId,
     playable_positions,
     read_midi_notes,
+    STANDARD_TUNING_MIDI,
 )
 
 
@@ -31,6 +33,7 @@ MIN_ALIGNMENT_SUPPORT_EVENTS = 1
 MIN_ALIGNMENT_SUPPORT_RATIO = 0.5
 MIN_ALIGNMENT_MARGIN = 0.08
 MIN_CONTACT_SCORE = 0.45
+MIN_FRET_WIRE_MARGIN = 0.12
 DEFAULT_FRAME_DELTAS = (-2, -1, 0, 1, 2)
 MEDIAPIPE_CONFIDENCE_THRESHOLDS = {
     "min_hand_detection_confidence": 0.05,
@@ -48,10 +51,8 @@ class StringRowContact:
     """One fretting-finger contact in continuous atlas string-row space.
 
     ``row`` is a visual string-row coordinate from 0 (atlas top string) to 5
-    (atlas bottom string).  The atlas longitudinal coordinate is intentionally
-    not part of this contract: EFA does not infer an absolute fret number.
-    Exact frets are derived later from the audio pitch and the selected
-    physical string.
+    (atlas bottom string). ``fret_region`` is optional and comes from a tracked
+    nut/numbered-fret calibration, never from the atlas alone.
     """
 
     row: float
@@ -60,6 +61,7 @@ class StringRowContact:
     time_sec: float = 0.0
     frame_index: int | None = None
     source_x: float | None = None
+    fret_region: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "row", float(self.row))
@@ -75,6 +77,8 @@ class StringRowContact:
             if source_x is None or not math.isfinite(source_x):
                 source_x = None
             object.__setattr__(self, "source_x", source_x)
+        if self.fret_region is not None:
+            object.__setattr__(self, "fret_region", int(self.fret_region))
 
  
 
@@ -248,7 +252,7 @@ class VisualInferenceResult:
             per_note.append({"source_idx": note_id.source_idx, **source, "chosen": chosen})
         return {
             "schema_version": SCHEMA_VERSION,
-            "mode": "string_row",
+            "mode": alignment.mode if alignment is not None else self.config.get("mode", "string_row"),
             "status": self.status,
             "accepted": bool(self.accepted),
             "reason": self.reason,
@@ -297,6 +301,7 @@ def _coerce_contact(contact: StringRowContact | Mapping[str, Any] | Sequence[Any
                 float(values[3]) if len(values) > 3 else 0.0,
                 values[4] if len(values) > 4 else None,
                 values[5] if len(values) > 5 else None,
+                values[6] if len(values) > 6 else None,
             )
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("visual event contains an invalid contact") from exc
@@ -312,6 +317,7 @@ def _coerce_contact(contact: StringRowContact | Mapping[str, Any] | Sequence[Any
             float(timestamp),
             frame_index,
             contact.get("source_x"),
+            contact.get("fret_region"),
         )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError("visual event contains an invalid contact") from exc
@@ -382,6 +388,8 @@ def _event_alignment_score(
     notes: Sequence[ScoreNote],
     event: VisualEvent,
     string_order: tuple[int, ...],
+    *,
+    require_fret_region: bool = False,
 ) -> tuple[float, int, tuple[tuple[int, PlayablePosition, int], ...]]:
     """Return the deterministic optimal note/contact edges for one chord.
 
@@ -405,6 +413,8 @@ def _event_alignment_score(
             except ValueError:
                 continue
             for contact_index, contact in enumerate(event.contacts):
+                if require_fret_region and contact.fret_region != position.fret_idx:
+                    continue
                 score = _contact_score(contact, row)
                 if score >= MIN_CONTACT_SCORE:
                     note_options.append((score, position, contact_index))
@@ -494,13 +504,13 @@ def infer_visual_alignment(
     frames_with_grid: int = 0,
     model_paths: Mapping[str, str] | None = None,
     config: Mapping[str, Any] | None = None,
+    string_order: tuple[int, ...] | None = None,
+    require_fret_region: bool = False,
 ) -> VisualInferenceResult:
     """Infer one of the two visual-top-to-standard-string row orders.
 
-    EFA contributes only string-row evidence.  For every note, exact
-    non-open ``(string, fret)`` candidates come from its authoritative MIDI
-    pitch and standard tuning; no fret coordinate or offset is inferred from
-    the atlas.
+    MIDI supplies exact playable pitches. When a nut/numbered-fret calibration
+    is supplied, a fingertip must also occupy that candidate's fret region.
     """
     notes = _coerce_notes(score_notes)
     groups = _group_notes(notes)
@@ -513,11 +523,12 @@ def infer_visual_alignment(
     matched = _nearest_events(groups, events)
     supported_matches = [item for item in matched if item is not None and item[1].contacts]
     common_config = {
-        "mode": "string_row",
+        "mode": "fret_region_and_string_row" if require_fret_region else "string_row",
         "coordinates": "string_rows",
-        "absolute_fret_numbers_known": False,
+        "absolute_fret_numbers_known": bool(require_fret_region),
         "min_contact_score": MIN_CONTACT_SCORE,
         "row_sigma": 0.65,
+        "min_fret_wire_margin": MIN_FRET_WIRE_MARGIN if require_fret_region else None,
         "min_support_events": MIN_ALIGNMENT_SUPPORT_EVENTS,
         "min_support_ratio": MIN_ALIGNMENT_SUPPORT_RATIO,
         "min_alignment_margin": MIN_ALIGNMENT_MARGIN,
@@ -525,9 +536,9 @@ def infer_visual_alignment(
     }
     if config:
         common_config.update(dict(config))
-    common_config["mode"] = "string_row"
-    common_config["coordinates"] = "string_rows"
-    common_config["absolute_fret_numbers_known"] = False
+    common_config["mode"] = "fret_region_and_string_row" if require_fret_region else "string_row"
+    common_config["coordinates"] = "string_rows_and_calibrated_fret_regions" if require_fret_region else "string_rows"
+    common_config["absolute_fret_numbers_known"] = bool(require_fret_region)
     note_sources = {
         note.identity: {
             "onset_sec": note.onset_sec,
@@ -551,7 +562,9 @@ def infer_visual_alignment(
             note_sources=note_sources,
         )
 
-    row_orders = (tuple(range(6)), tuple(reversed(range(6))))
+    row_orders = (tuple(string_order),) if string_order is not None else (tuple(range(6)), tuple(reversed(range(6))))
+    if any(sorted(order) != list(range(6)) for order in row_orders):
+        raise ValueError("string_order must be a permutation of six standard strings")
     scored: list[tuple[float, int, tuple[int, ...]]] = []
     for string_order in row_orders:
         total = 0.0
@@ -560,14 +573,16 @@ def infer_visual_alignment(
             if item is None:
                 continue
             group, event = item
-            score, support, _edges = _event_alignment_score(group, event, string_order)
+            score, support, _edges = _event_alignment_score(
+                group, event, string_order, require_fret_region=require_fret_region,
+            )
             total += score
             if support > 0:
                 support_events += 1
         scored.append((total, support_events, string_order))
     scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
     best_score, best_support, best_order = scored[0]
-    runner_score = scored[1][0]
+    runner_score = scored[1][0] if len(scored) > 1 else 0.0
     usable_events = max(1, len(supported_matches))
     support_ratio = best_support / usable_events
     margin = best_score - runner_score
@@ -605,13 +620,16 @@ def infer_visual_alignment(
         best_support,
         support_ratio,
         margin,
+        common_config["mode"],
     )
     likelihoods: dict[ScoreNoteId, dict[PlayablePosition, float]] = {}
     for item in matched:
         if item is None:
             continue
         group, event = item
-        _score, _support, edges = _event_alignment_score(group, event, best_order)
+        _score, _support, edges = _event_alignment_score(
+            group, event, best_order, require_fret_region=require_fret_region,
+        )
         for note_index, position, contact_index in edges:
             note = group[note_index]
             row = float(best_order.index(position.string_idx))
@@ -921,8 +939,8 @@ def _landmark_point(landmark: Any, width: int, height: int) -> tuple[float, floa
     return (x, y) if math.isfinite(x) and math.isfinite(y) else None
 
 
-def _relative_contact(atlas: Any, tip: Any, distal: Any, frame_shape: tuple[int, int], cv2: Any, np: Any, *, finger: str, confidence: float, time_sec: float, frame_index: int) -> StringRowContact | None:
-    """Map a fingertip to a continuous six-string atlas row."""
+def _relative_contact(atlas: Any, tip: Any, distal: Any, frame_shape: tuple[int, int], cv2: Any, np: Any, *, finger: str, confidence: float, time_sec: float, frame_index: int, calibration: Any = None) -> StringRowContact | None:
+    """Map a fingertip to an atlas row and optional calibrated fret region."""
     try:
         confidence = float(confidence)
     except (TypeError, ValueError, OverflowError):
@@ -985,6 +1003,24 @@ def _relative_contact(atlas: Any, tip: Any, distal: Any, frame_shape: tuple[int,
     row = float(np.interp(mapped[1], row_axis, np.arange(6, dtype=np.float64)))
     if not math.isfinite(row):
         return None
+    fret_region = None
+    if calibration is not None:
+        try:
+            board_x, board_y = map(float, calibration.image_to_board([tip_point])[0])
+            continuous_fret = calibration.continuous_fret(board_x)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return None
+        if (
+            continuous_fret is None
+            or not math.isfinite(continuous_fret)
+            or not 0.0 <= board_y <= 1.0
+            or not 0.0 < continuous_fret <= calibration.far_fret
+        ):
+            return None
+        fret_region = math.ceil(continuous_fret)
+        # Near a wire, a small mapping error changes the numbered cell.
+        if min(continuous_fret - (fret_region - 1), fret_region - continuous_fret) < MIN_FRET_WIRE_MARGIN:
+            return None
     return StringRowContact(
         row,
         confidence,
@@ -992,6 +1028,7 @@ def _relative_contact(atlas: Any, tip: Any, distal: Any, frame_shape: tuple[int,
         time_sec,
         frame_index,
         source_x=tip_point[0],
+        fret_region=fret_region,
     )
 
 
@@ -1012,6 +1049,7 @@ def _aggregate_contacts(contacts: Sequence[StringRowContact]) -> tuple[StringRow
             if (
                 representative.finger == contact.finger
                 and abs(representative.row - contact.row) <= 0.45
+                and representative.fret_region == contact.fret_region
             ):
                 match = group
                 break
@@ -1048,9 +1086,38 @@ def _aggregate_contacts(contacts: Sequence[StringRowContact]) -> tuple[StringRow
                 max(item.time_sec for item in group),
                 group[-1].frame_index,
                 source_x=source_x,
+                fret_region=group[0].fret_region,
             )
         )
     return tuple(output)
+
+
+def _track_frame_calibration(
+    reference_rgb: Any,
+    rgb: Any,
+    calibration: Any,
+    frame_index: int,
+    fps: float,
+    tracker: Any,
+    previous: tuple[Any, Any, int, int] | None,
+) -> tuple[Any, dict[str, Any], tuple[Any, Any, int, int] | None]:
+    """Track from the anchor, then a nearby accepted frame for a short gap."""
+    board, info = tracker(reference_rgb, rgb, calibration)
+    if board is not None:
+        return board, {**info, "strategy": "reference_frame"}, (rgb, board, frame_index, 0)
+    if previous is not None:
+        prev_rgb, prev_board, prev_index, chained = previous
+        max_gap = max(3, int(round(fps * .25)))
+        if chained < 3 and 0 < frame_index - prev_index <= max_gap:
+            nearby_board, nearby_info = tracker(prev_rgb, rgb, prev_board)
+            if nearby_board is not None:
+                return (
+                    nearby_board,
+                    {**nearby_info, "strategy": "nearby_frame", "base_frame": prev_index,
+                     "reference_failure": info.get("reason")},
+                    (rgb, nearby_board, frame_index, chained + 1),
+                )
+    return None, {**info, "strategy": "failed"}, previous
 
 
 def extract_visual_events(
@@ -1060,14 +1127,30 @@ def extract_visual_events(
     yolo_weights: str | Path | None = None,
     hand_model: str | Path | None = None,
     frame_deltas: Sequence[int] = DEFAULT_FRAME_DELTAS,
+    calibration_path: str | Path | None = None,
+    debug_video_path: str | Path | None = None,
 ) -> ExtractedVisual:
-    """Read a local video and extract aggregated string-row contacts.
+    """Read a local video and extract aggregated row and optional fret contacts.
 
     OpenCV timestamps are derived solely from monotonic frame index/FPS.  One
     YOLO segmentation object and one MediaPipe HandLandmarker are initialized
     for the complete bounded extraction, not once per frame.
     """
     import numpy as np
+    calibration = None
+    reference_frame = None
+    if calibration_path is not None:
+        from main.video.fretboard.audio_visual_fusion import BoardCalibration, track_calibration
+        try:
+            calibration_data = json.loads(Path(calibration_path).read_text(encoding="utf-8"))
+            calibration = BoardCalibration.from_dict(calibration_data)
+            reference_frame = int(calibration_data.get("reference_frame", 0))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise VisualExtractionError(f"Invalid visual calibration {calibration_path}: {exc}") from exc
+        if reference_frame < 0:
+            raise VisualExtractionError("Visual calibration reference_frame must be nonnegative")
+        if tuple(reversed(calibration.tuning)) != STANDARD_TUNING_MIDI:
+            raise VisualExtractionError("Visual calibration tuning must match standard guitar tuning")
     try:
         import cv2
     except ImportError as exc:
@@ -1123,6 +1206,19 @@ def extract_visual_events(
         capture.release()
         landmarker.close()
         raise VisualExtractionError(f"Video has no usable FPS metadata: {video_path}")
+    reference_rgb = None
+    if calibration is not None:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, reference_frame)
+        ok, reference_bgr = capture.read()
+        if not ok:
+            capture.release()
+            landmarker.close()
+            raise VisualExtractionError(f"Could not read calibration reference frame {reference_frame}")
+        reference_rgb = cv2.cvtColor(reference_bgr, cv2.COLOR_BGR2RGB)
+        if calibration.image_size is not None and tuple(calibration.image_size) != reference_rgb.shape[1::-1]:
+            capture.release()
+            landmarker.close()
+            raise VisualExtractionError("Visual calibration image_size does not match the video")
     notes = _coerce_notes(score_notes)
     groups = _group_notes(notes)
     target_indices: dict[int, list[int]] = {}
@@ -1134,6 +1230,15 @@ def extract_visual_events(
             index = center + int(delta)
             if index >= 0:
                 target_indices.setdefault(index, []).append(group_index)
+    debug_indices: set[int] = set()
+    debug_fps = None
+    if debug_video_path is not None:
+        from main.video.hands.debug_video import sample_indices
+        frame_count = int(round(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+        indices, debug_fps = sample_indices(frame_count, fps)
+        debug_indices = set(indices)
+        for index in debug_indices:
+            target_indices.setdefault(index, [])
     sorted_target_indices = sorted(target_indices)
     events_contacts: dict[int, list[StringRowContact]] = {index: [] for index in range(len(groups))}
     event_frames: dict[int, set[int]] = {index: set() for index in range(len(groups))}
@@ -1141,7 +1246,14 @@ def extract_visual_events(
     frames_inspected = 0
     frames_with_grid = 0
     last_timestamp_ms = -1
+    previous_tracking = None
+    debug_writer = None
     try:
+        if debug_video_path is not None:
+            from main.video.hands.debug_video import DebugVideoWriter, draw_debug_frame
+            width = int(round(capture.get(cv2.CAP_PROP_FRAME_WIDTH)))
+            height = int(round(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+            debug_writer = DebugVideoWriter(debug_video_path, video_path, width, height, debug_fps)
         for frame_index in sorted_target_indices:
             capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
             ok, bgr = capture.read()
@@ -1150,6 +1262,13 @@ def extract_visual_events(
             group_indices = target_indices[frame_index]
             frames_inspected += 1
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            board = None
+            tracking = None
+            if calibration is not None:
+                board, tracking, previous_tracking = _track_frame_calibration(
+                    reference_rgb, rgb, calibration, frame_index, fps,
+                    track_calibration, previous_tracking,
+                )
             raw_proposals = _native_yolo_proposals(yolo, rgb, cv2)
             proposals, merge_provenance = _merge_compatible_yolo_proposals(raw_proposals)
             if proposals:
@@ -1176,6 +1295,12 @@ def extract_visual_events(
                 "alternatives": alternative_rows,
                 "status": "unavailable",
             }
+            if tracking is not None:
+                summary["tracking"] = dict(tracking)
+            frame_contact_count = 0
+            frame_regions: set[int] = set()
+            frame_fingertips: list[dict[str, Any]] = []
+            grid_usable = False
             if atlas is not None:
                 quality = dict(atlas.quality)
                 selected_proposal = quality.get("selected_proposal")
@@ -1185,20 +1310,26 @@ def extract_visual_events(
                 if quality.get("status") == "grid":
                     frames_with_grid += 1
                     summary["status"] = "grid"
-                    image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    timestamp_ms = max(
-                        int(round(frame_index / fps * 1000.0)),
-                        last_timestamp_ms + 1,
-                    )
-                    last_timestamp_ms = timestamp_ms
-                    hand_result = landmarker.detect_for_video(image, timestamp_ms)
-                    hands = getattr(hand_result, "hand_landmarks", ())
-                    for hand in hands:
-                        for finger, tip_index, distal_index in (("index", 8, 7), ("middle", 12, 11), ("ring", 16, 15), ("pinky", 20, 19)):
-                            if tip_index >= len(hand) or distal_index >= len(hand):
-                                continue
-                            tip, distal = hand[tip_index], hand[distal_index]
-                            confidence = _landmark_confidence(tip)
+                    grid_usable = True
+            if grid_usable or frame_index in debug_indices:
+                image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                timestamp_ms = max(
+                    int(round(frame_index / fps * 1000.0)),
+                    last_timestamp_ms + 1,
+                )
+                last_timestamp_ms = timestamp_ms
+                hand_result = landmarker.detect_for_video(image, timestamp_ms)
+                hands = getattr(hand_result, "hand_landmarks", ())
+                for hand in hands:
+                    for finger, tip_index, distal_index in (("index", 8, 7), ("middle", 12, 11), ("ring", 16, 15), ("pinky", 20, 19)):
+                        if tip_index >= len(hand) or distal_index >= len(hand):
+                            continue
+                        tip, distal = hand[tip_index], hand[distal_index]
+                        tip_point = _landmark_point(tip, rgb.shape[1], rgb.shape[0])
+                        distal_point = _landmark_point(distal, rgb.shape[1], rgb.shape[0])
+                        confidence = _landmark_confidence(tip)
+                        contact = None
+                        if grid_usable and (calibration is None or board is not None):
                             contact = _relative_contact(
                                 atlas,
                                 tip,
@@ -1210,18 +1341,39 @@ def extract_visual_events(
                                 confidence=confidence,
                                 time_sec=frame_index / fps,
                                 frame_index=frame_index,
+                                calibration=board,
                             )
-                            if contact is not None:
-                                for group_index in group_indices:
-                                    events_contacts[group_index].append(contact)
-                                    event_frames[group_index].add(frame_index)
+                        if tip_point is not None:
+                            frame_fingertips.append({
+                                "finger": finger, "x": tip_point[0], "y": tip_point[1],
+                                "distal": distal_point,
+                                "row": contact.row if contact is not None else None,
+                                "fret_region": contact.fret_region if contact is not None else None,
+                            })
+                        if contact is not None:
+                            frame_contact_count += 1
+                            if contact.fret_region is not None:
+                                frame_regions.add(contact.fret_region)
+                            for group_index in group_indices:
+                                events_contacts[group_index].append(contact)
+                                event_frames[group_index].add(frame_index)
+            summary["contact_count"] = frame_contact_count
+            if calibration is not None:
+                summary["fret_regions"] = sorted(frame_regions)
             quality_summaries.append(summary)
+            if debug_writer is not None and frame_index in debug_indices:
+                debug_writer.write(draw_debug_frame(
+                    bgr, atlas, frame_fingertips,
+                    time_sec=frame_index / fps, tracking=tracking,
+                ))
     finally:
         capture.release()
         try:
             landmarker.close()
         except (AttributeError, RuntimeError):
             pass
+        if debug_writer is not None:
+            debug_writer.close()
     events = tuple(
         VisualEvent(
             groups[index][0].onset_sec if groups[index] else 0.0,
@@ -1243,7 +1395,11 @@ def extract_visual_events(
             "timestamp_source": "round(frame_index / fps * 1000)",
             "timestamp_mode": "VIDEO",
             "seek_strategy": "sorted_unique_frame_indices",
-            "mode": "string_row",
+            "mode": "fret_region_and_string_row" if calibration is not None else "string_row",
+            "calibration_path": str(calibration_path) if calibration_path is not None else None,
+            "reference_frame": reference_frame,
+            "debug_video_path": str(debug_video_path) if debug_video_path is not None else None,
+            "debug_video_fps": debug_fps,
             "coordinates": "unflipped_rgb",
             "native_masks": True,
             "mediapipe_thresholds": dict(MEDIAPIPE_CONFIDENCE_THRESHOLDS),
@@ -1259,6 +1415,8 @@ def analyze_video(
     midi_path: str | Path | None = None,
     yolo_weights: str | Path | None = None,
     hand_model: str | Path | None = None,
+    calibration_path: str | Path | None = None,
+    debug_video_path: str | Path | None = None,
 ) -> VisualInferenceResult:
     """Run extraction then pure semantic alignment for one local video."""
     if score_notes is None:
@@ -1266,7 +1424,18 @@ def analyze_video(
             raise ValueError("score_notes or midi_path is required")
         score_notes = read_midi_notes(midi_path)
     notes = _coerce_notes(score_notes)
-    extracted = extract_visual_events(video_path, notes, yolo_weights=yolo_weights, hand_model=hand_model)
+    extracted = extract_visual_events(
+        video_path, notes, yolo_weights=yolo_weights, hand_model=hand_model,
+        calibration_path=calibration_path,
+        debug_video_path=debug_video_path,
+    )
+    if calibration_path is not None:
+        from main.video.fretboard.audio_visual_fusion import BoardCalibration
+        data = json.loads(Path(calibration_path).read_text(encoding="utf-8"))
+        calibration = BoardCalibration.from_dict(data)
+        string_order = tuple(range(6)) if calibration.top_string == 6 else tuple(reversed(range(6)))
+    else:
+        string_order = None
     return infer_visual_alignment(
         notes,
         extracted.events,
@@ -1275,6 +1444,8 @@ def analyze_video(
         frames_with_grid=extracted.frames_with_grid,
         model_paths=extracted.model_paths,
         config=extracted.config,
+        string_order=string_order,
+        require_fret_region=calibration_path is not None,
     )
 
 

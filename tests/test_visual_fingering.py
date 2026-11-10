@@ -21,6 +21,7 @@ from main.video.hands.visual_fingering import (
     _landmark_confidence,
     _mask_compatibility,
     _merge_compatible_yolo_proposals,
+    _relative_contact,
     infer_visual_alignment,
 )
 
@@ -102,6 +103,58 @@ def test_open_string_contacts_are_not_alignment_evidence():
 
     assert not result.accepted
     assert result.position_likelihoods == {}
+
+
+def test_calibrated_fret_region_filters_audio_positions():
+    notes = (_note(0, 0.0, 64),)
+    event = VisualEvent(0.0, (StringRowContact(4.0, fret_region=5),), 1)
+
+    result = infer_visual_alignment(
+        notes, (event,), string_order=tuple(range(6)), require_fret_region=True,
+    )
+
+    assert result.accepted
+    assert result.alignment.mode == "fret_region_and_string_row"
+    assert set(result.position_likelihoods[ScoreNoteId(0)]) == {(4, 5)}
+    assert [(item.string_idx, item.fret_idx) for item in assign_tab_notes(
+        notes, position_likelihoods=result.position_likelihoods,
+    )] == [(4, 5)]
+    assert result.to_diagnostics()["mode"] == "fret_region_and_string_row"
+
+
+def test_calibrated_fret_region_abstains_on_missing_or_mismatched_region():
+    notes = (_note(0, 0.0, 64),)
+    for region in (None, 6):
+        event = VisualEvent(0.0, (StringRowContact(4.0, fret_region=region),), 1)
+        result = infer_visual_alignment(
+            notes, (event,), string_order=tuple(range(6)), require_fret_region=True,
+        )
+        assert not result.accepted
+        assert result.position_likelihoods == {}
+
+
+def test_fingertip_maps_to_calibrated_fret_region_and_rejects_wire_boundary():
+    from main.video.fretboard.audio_visual_fusion import BoardCalibration
+
+    board = BoardCalibration(((0, 0), (100, 0), (100, 100), (0, 100)))
+    atlas = types.SimpleNamespace(
+        target_x=np.array([0.0, 1023.0]),
+        target_y=np.arange(8, dtype=float),
+        image_to_grid=lambda points: np.array([[500.0, 5.0]]),
+    )
+    point = lambda x: types.SimpleNamespace(x=x, y=0.5)
+    contact = _relative_contact(
+        atlas, point(0.47), point(0.47), (100, 100), None, np,
+        finger="index", confidence=1.0, time_sec=0.0, frame_index=0,
+        calibration=board,
+    )
+    assert contact is not None
+    assert contact.fret_region == 5
+    assert _relative_contact(
+        atlas, point(0.5), point(0.5), (100, 100), None, np,
+        finger="index", confidence=1.0, time_sec=0.0, frame_index=0,
+        calibration=board,
+    ) is None
 
 def test_chord_match_uses_each_contact_at_most_once():
     notes = (_note(0, 0.0, 60), _note(1, 0.0, 64))

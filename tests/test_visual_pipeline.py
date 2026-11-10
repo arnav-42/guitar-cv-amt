@@ -99,6 +99,40 @@ def test_visual_orchestration_preserves_audio_baseline_and_diagnostics(tmp_path:
 
 
 
+def test_visual_calibration_enables_region_analyzer_and_final_tab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    source = tmp_path / "performance.mp4"
+    source.write_bytes(b"video")
+    calibration = tmp_path / "calibration.json"
+    calibration.write_text("{}")
+    _patch_audio_pipeline(monkeypatch)
+    received = []
+
+    def calibrated_analyzer(_video, notes, **kwargs):
+        received.append(kwargs)
+        return VisualInferenceResult(
+            True, "calibrated contact",
+            VisualAlignment((0, 1, 2, 3, 4, 5), 1.0, 0.0, 1, 1.0, 1.0,
+                            "fret_region_and_string_row"),
+            {notes[0].identity: {(4, 5): 1.0}},
+            config={"mode": "fret_region_and_string_row"},
+        )
+
+    output_dir = tmp_path / "calibrated"
+    video_to_score.run(
+        str(source), output_dir, model_name="yourmt3", device="cpu",
+        overwrite=False, visual_calibration=calibration,
+        visual_analyzer=calibrated_analyzer,
+    )
+
+    assert received[0]["calibration_path"] == calibration
+    assert received[0]["debug_video_path"] == output_dir / "visual_overlay.mp4"
+    assert (output_dir / "audio_tablature.txt").read_bytes() != (output_dir / "tablature.txt").read_bytes()
+    diagnostics = json.loads((output_dir / "visual_diagnostics.json").read_text())
+    assert diagnostics["mode"] == "fret_region_and_string_row"
+
+
 def test_accepted_weak_visual_evidence_falls_back_byte_for_byte_and_require_visual_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

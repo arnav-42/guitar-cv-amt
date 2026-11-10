@@ -167,11 +167,55 @@ row choice and the authoritative MIDI pitch determine an exact playable
 `(string, fret)` candidate: the fret is derived as
 `pitch_midi - open_string_pitch`, never inferred from an EFA cell coordinate.
 The existing whole-chord, unique-string dynamic program then ranks those exact
-candidates.  The normal outputs are joined by `audio_tablature.txt` (the
-unchanged audio-only baseline) and `visual_diagnostics.json`.  Only accepted
+candidates. The normal outputs are joined by `audio_tablature.txt` (the
+unchanged audio-only baseline), `visual_diagnostics.json`, and
+`visual_overlay.mp4`. The overlay keeps the source audio and timeline while
+sampling visual detections at 5 fps. It draws the observed fret/string grid
+and MediaPipe fingertips, including when the grid is unavailable. Only accepted
 visual evidence may change `tablature.txt`; acceptance also requires the final
 whole-chord assignment to select at least one exact position with positive
 visual evidence.
+
+To include the diagram's **finger position → note region** step, provide a
+calibration for the same local video:
+
+```bash
+uv run --python 3.10 --extra transcription --extra visual -- \
+  python -m main.audio.video_to_score path/to/performance.mp4 \
+  --model yourmt3 --visual --visual-calibration path/to/calibration.json \
+  --output-dir output/performance
+```
+
+The JSON uses the `BoardCalibration` format: `corners` are the nut at the top
+string, a numbered wire at the top string, that wire at the bottom string, and
+the nut at the bottom string, in that order. Set `far_fret` to the numbered
+wire (1–24), `top_string` to 6 for low E or 1 for high E, and `reference_frame`
+to the video frame used for those corners (default 0). An optional `image_size`
+is `[width, height]`. For example:
+
+```json
+{
+  "corners": [[1487, 780], [940, 676], [927, 750], [1475, 837]],
+  "far_fret": 12,
+  "top_string": 6,
+  "reference_frame": 0,
+  "image_size": [1920, 1080]
+}
+```
+
+These corner coordinates are an illustration; measure them on the video's
+reference frame. The existing `main.video.fretboard.video_fusion` command
+can create a calibration interactively and save it as `calibration.json`.
+The calibration must use standard tuning. The pipeline tracks its board into
+each sampled frame using optical flow for small moves and feature matching for
+larger jumps. A nearby accepted frame can bridge a short tracking failure.
+The tracked board maps fingertips to numbered fret regions, and requires a
+visual contact to match both the string row and the MIDI-implied fret. Contacts
+too close to a fret wire or from a frame whose board cannot be tracked are
+discarded. If no usable visual assignment remains, the final TAB falls back to
+the audio-only output.
+`visual_diagnostics.json` records the tracking method and matching results.
+Without calibration, the existing string-row workflow remains available.
 
 EFA quality summaries retain `lattice_accepted` as observed geometry metadata,
 but string-row evidence does not require that lattice flag.  EFA still supplies
@@ -183,6 +227,19 @@ the baseline and diagnostics records the observed failure or quality status.
 `--require-visual` turns that fallback into an error.  `--visual` rejects
 YouTube URLs before download; YouTube remains audio-only.  `--overwrite`
 protects all enabled outputs, including both tablature files and diagnostics.
+
+For a quick iteration on the first 15 seconds of the bundled Stairway video:
+
+```bash
+ffmpeg -y -i videos/stairway-intro.webm -t 15 -map 0:v:0 -map 0:a:0 \
+  -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p \
+  -c:a aac -b:a 160k videos/stairway-intro-short.mp4
+uv run --python 3.10 --extra transcription --extra visual -- \
+  python -m main.audio.video_to_score videos/stairway-intro-short.mp4 \
+  --model yourmt3 --visual --output-dir output/stairway-intro-short --overwrite
+```
+
+Open `output/stairway-intro-short/visual_overlay.mp4` beside the two TAB files.
 
 The bundled YOLO checkpoint (`main/models/fretboard/yolo_weights_best.pt`) and MediaPipe
 Tasks model (`main/models/hands/hand_landmarker.task`) are repository-relative defaults.

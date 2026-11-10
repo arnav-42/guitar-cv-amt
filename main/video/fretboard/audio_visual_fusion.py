@@ -13,7 +13,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from main.deprecated.audio.chord_detection import freq_from_fret
 
 ROOT = Path(__file__).resolve().parents[3]
 STANDARD_TUNING = (64, 59, 55, 50, 45, 40)  # strings 1..6: high E -> low E
@@ -76,8 +75,8 @@ class BoardCalibration:
 
     def fret_x(self, fret):
         # Exact equal temperament, sharing the old audio helper's relationship.
-        ratio = freq_from_fret(1., fret)
-        return (1 - 1 / ratio) / (1 - 1 / freq_from_fret(1., self.far_fret))
+        ratio = 2 ** (fret / 12)
+        return (1 - 1 / ratio) / (1 - 2 ** (-self.far_fret / 12))
 
     def continuous_fret(self, x):
         remaining = 1 - float(x) * (1 - 2 ** (-self.far_fret / 12))
@@ -101,8 +100,8 @@ def pitch_candidates(pitch, tuning=STANDARD_TUNING, max_fret=24):
 def track_calibration(reference, image, calibration):
     """Register the visible board to each image; reject failed tracking.
 
-    Uses reference-to-image optical flow with forward/backward checks and a
-    RANSAC homography. Each frame starts from the reference, avoiding drift.
+    Optical flow handles small motion; ORB matching handles larger jumps.
+    Both estimate a checked homography from the reference board to this frame.
     """
     if reference.shape != image.shape:
         return None, {"status": "failed", "reason": "image_size_changed"}
@@ -115,32 +114,69 @@ def track_calibration(reference, image, calibration):
     # letting independently moving fingers dominate the planar homography.
     support = calibration.board_to_image([[.45, 0], [1, 0], [1, 1], [.45, 1]])
     cv2.fillConvexPoly(mask, np.rint(support).astype(np.int32), 255)
+
+    def accept(homography, inlier_count, method):
+        if homography is None:
+            return None
+        corners = cv2.perspectiveTransform(np.float32(calibration.corners)[None], homography)[0]
+        original = np.float32(calibration.corners)
+        area = cv2.contourArea(corners, oriented=True)
+        original_area = cv2.contourArea(original, oriented=True)
+        if not np.isfinite(corners).all() or area * original_area <= 0:
+            return None
+        if not .65 < abs(area / original_area) < 1.5:
+            return None
+        try:
+            board = replace(calibration, corners=tuple(tuple(map(float, p)) for p in corners))
+        except ValueError:
+            return None
+        return board, {"status": "tracked", "method": method, "inliers": int(inlier_count)}
+
+    flow_reason = "too_few_board_features"
     points = cv2.goodFeaturesToTrack(a, 300, .01, 5, mask=mask)
-    if points is None or len(points) < 10:
-        return None, {"status": "failed", "reason": "too_few_board_features"}
-    moved, ok, _ = cv2.calcOpticalFlowPyrLK(a, b, points, None, winSize=(31, 31), maxLevel=4)
-    if moved is None:
-        return None, {"status": "failed", "reason": "flow_failed"}
-    back, reverse_ok, _ = cv2.calcOpticalFlowPyrLK(b, a, moved, None, winSize=(31, 31), maxLevel=4)
-    if back is None:
-        return None, {"status": "failed", "reason": "reverse_flow_failed"}
-    keep = (ok.ravel() > 0) & (reverse_ok.ravel() > 0)
-    keep &= np.linalg.norm(back[:, 0] - points[:, 0], axis=1) < 1.5
-    keep &= np.isfinite(moved[:, 0]).all(axis=1)
-    if keep.sum() < 10:
-        return None, {"status": "failed", "reason": "too_few_tracked_features"}
-    homography, inliers = cv2.findHomography(points[keep], moved[keep], cv2.RANSAC, 2.5)
-    if homography is None or inliers is None or inliers.sum() < 10 or inliers.mean() < .6:
-        return None, {"status": "failed", "reason": "inconsistent_board_motion"}
-    corners = cv2.perspectiveTransform(np.float32(calibration.corners)[None], homography)[0]
-    ratio = abs(cv2.contourArea(corners)) / abs(cv2.contourArea(np.float32(calibration.corners)))
-    if not np.isfinite(corners).all() or not .65 < ratio < 1.5:
-        return None, {"status": "failed", "reason": "implausible_board_motion"}
-    try:
-        calibrated = replace(calibration, corners=tuple(tuple(map(float, p)) for p in corners))
-    except ValueError:
-        return None, {"status": "failed", "reason": "invalid_tracked_board"}
-    return calibrated, {"status": "tracked", "inliers": int(inliers.sum())}
+    if points is not None and len(points) >= 10:
+        moved, ok, _ = cv2.calcOpticalFlowPyrLK(a, b, points, None, winSize=(31, 31), maxLevel=4)
+        if moved is not None:
+            back, reverse_ok, _ = cv2.calcOpticalFlowPyrLK(b, a, moved, None, winSize=(31, 31), maxLevel=4)
+            if back is not None:
+                keep = (ok.ravel() > 0) & (reverse_ok.ravel() > 0)
+                keep &= np.linalg.norm(back[:, 0] - points[:, 0], axis=1) < 1.5
+                keep &= np.isfinite(moved[:, 0]).all(axis=1)
+                if keep.sum() >= 10:
+                    homography, inliers = cv2.findHomography(points[keep], moved[keep], cv2.RANSAC, 2.5)
+                    if inliers is not None and inliers.sum() >= 10 and inliers.mean() >= .6:
+                        accepted = accept(homography, inliers.sum(), "optical_flow")
+                        if accepted is not None:
+                            return accepted
+                flow_reason = "inconsistent_board_motion"
+            else:
+                flow_reason = "reverse_flow_failed"
+        else:
+            flow_reason = "flow_failed"
+
+    # Match only features from the calibrated board against the full target.
+    # This recovers large translations/rotations that Lucas-Kanade cannot span.
+    orb = cv2.ORB_create(nfeatures=1200, fastThreshold=10)
+    source_points, source_desc = orb.detectAndCompute(a, mask)
+    target_points, target_desc = orb.detectAndCompute(b, None)
+    if source_desc is not None and target_desc is not None and len(source_points) >= 10:
+        pairs = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(source_desc, target_desc, k=2)
+        good = [first for pair in pairs if len(pair) == 2
+                for first, second in [pair] if first.distance < .75 * second.distance]
+        unique, used_targets = [], set()
+        for match in sorted(good, key=lambda item: item.distance):
+            if match.trainIdx not in used_targets:
+                unique.append(match)
+                used_targets.add(match.trainIdx)
+        if len(unique) >= 10:
+            source_xy = np.float32([source_points[m.queryIdx].pt for m in unique])
+            target_xy = np.float32([target_points[m.trainIdx].pt for m in unique])
+            homography, inliers = cv2.findHomography(source_xy, target_xy, cv2.RANSAC, 3.0)
+            if inliers is not None and inliers.sum() >= 10 and inliers.mean() >= .5:
+                accepted = accept(homography, inliers.sum(), "orb")
+                if accepted is not None:
+                    return accepted
+    return None, {"status": "failed", "reason": flow_reason, "orb": "no_consistent_match"}
 
 
 def anchor_to_nut(calibration, ends):

@@ -272,6 +272,7 @@ def _fallback_visual_diagnostics(
 ) -> dict[str, Any]:
     return {
         "schema_version": "1.0",
+        "mode": config.get("mode", "string_row"),
         "status": "fallback",
         "accepted": False,
         "reason": str(reason),
@@ -555,6 +556,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="MediaPipe Tasks hand model (default: main/models/hands/hand_landmarker.task)",
     )
+    parser.add_argument(
+        "--visual-calibration",
+        type=Path,
+        help="JSON with nut/numbered-fret corners and reference_frame for absolute fingertip fret regions",
+    )
     return parser
 
 
@@ -569,9 +575,10 @@ def run(
     require_visual: bool = False,
     yolo_weights: Path | None = None,
     hand_model: Path | None = None,
+    visual_calibration: Path | None = None,
     visual_analyzer: Any | None = None,
 ) -> None:
-    visual_enabled = bool(visual or require_visual)
+    visual_enabled = bool(visual or require_visual or visual_calibration is not None)
     youtube_source = is_youtube_url(source)
     # Reject before creating an output directory, downloading, extracting, or
     # invoking MT3.  The visual path is intentionally local-video only.
@@ -598,6 +605,7 @@ def run(
         outputs.update({
             "audio baseline tablature": output_dir / "audio_tablature.txt",
             "visual diagnostics": output_dir / "visual_diagnostics.json",
+            "visual overlay": output_dir / "visual_overlay.mp4",
         })
     existing = [str(path) for path in outputs.values() if path.exists()]
     if existing and not overwrite:
@@ -606,6 +614,8 @@ def run(
             + ", ".join(existing)
             + ". Choose another --output-dir or pass --overwrite."
         )
+    if visual_enabled and overwrite:
+        outputs["visual overlay"].unlink(missing_ok=True)
 
     if youtube_source:
         print(f"Downloading audio from {source}...")
@@ -646,19 +656,17 @@ def run(
             if visual_analyzer is None:
                 from main.video.hands import visual_fingering
 
-                result = visual_fingering.analyze_video(
-                    media_path,
-                    notes,
-                    yolo_weights=visual_yolo,
-                    hand_model=visual_hand,
-                )
+                analyzer = visual_fingering.analyze_video
             else:
-                result = visual_analyzer(
-                    media_path,
-                    notes,
-                    yolo_weights=visual_yolo,
-                    hand_model=visual_hand,
-                )
+                analyzer = visual_analyzer
+            analyzer_kwargs = {
+                "yolo_weights": visual_yolo,
+                "hand_model": visual_hand,
+                "debug_video_path": outputs["visual overlay"],
+            }
+            if visual_calibration is not None:
+                analyzer_kwargs["calibration_path"] = Path(visual_calibration)
+            result = analyzer(media_path, notes, **analyzer_kwargs)
             if isinstance(result, Mapping):
                 accepted = bool(result.get("accepted", False))
                 fallback_reason = str(result.get("reason", fallback_reason))
@@ -725,7 +733,11 @@ def run(
                 reason=fallback_reason,
                 yolo_weights=visual_yolo,
                 hand_model=visual_hand,
-                config={"visual": True},
+                config={
+                    "visual": True,
+                    "mode": "fret_region_and_string_row" if visual_calibration is not None else "string_row",
+                    "calibration_path": str(visual_calibration) if visual_calibration is not None else None,
+                },
             )
         if notes:
             _overwrite_visual_diagnostics(
@@ -741,7 +753,8 @@ def run(
 
     print("Wrote:")
     for label, path in outputs.items():
-        print(f"  {label}: {path}")
+        if path.exists():
+            print(f"  {label}: {path}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -767,6 +780,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             require_visual=args.require_visual,
             yolo_weights=args.yolo_weights,
             hand_model=args.hand_model,
+            visual_calibration=args.visual_calibration,
         )
     except (PipelineError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
