@@ -35,7 +35,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from pipeline.guifir import fret_u, gt_geometry, load_rows, tab_targets, to_template
+from main.video.fretboard.guifir import fret_u, gt_geometry, load_rows, tab_targets, to_template
 from scripts.guifir.common import EVAL_DIR, OUT, PRED_DIR
 
 CACHE = OUT

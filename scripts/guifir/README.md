@@ -1,7 +1,7 @@
 # GuiFiR benchmark scripts
 
 These scripts run the GuiFiR benchmark: string detection, hand models, note-level scoring and an audio check. Run every command from the repository root as a module (`python -m scripts.guifir.<name>`).
-- Shared modules: `pipeline/guifir.py` (loader and GT geometry) and `pipeline/string_detection.py` (string detectors A and B, and the confidence flag).
+- Shared modules: `main/video/fretboard/guifir.py` (loader and GT geometry) and `main/video/fretboard/string_detection.py` (string detectors A and B, and the confidence flag).
 - Generated files go to `output/guifir/`, which is git-ignored.
 
 ## 1. Data (not in the repo)

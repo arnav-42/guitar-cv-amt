@@ -22,7 +22,7 @@ import cv2
 
 import numpy as np
 
-from pipeline.guifir import ClipReader, load_rows
+from main.video.fretboard.guifir import ClipReader, load_rows
 from scripts.guifir.common import PRED_DIR, THIRD_PARTY, short_path
 
 _MP_MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/"

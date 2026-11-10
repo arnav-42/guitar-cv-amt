@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pipeline.grid_warp import (
+from main.video.fretboard.grid_warp import (
     build_grid_maps,
     grid_to_image,
     image_to_grid,

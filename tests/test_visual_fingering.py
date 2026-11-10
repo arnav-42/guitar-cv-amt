@@ -6,15 +6,15 @@ import types
 
 import numpy as np
 
-from pipeline.guitar_tab import (
+from main.audio.guitar_tab import (
     ScoreNote,
     ScoreNoteId,
     assign_tab_notes,
     midi_to_tab_notes,
     render_ascii_tab,
 )
-from pipeline import visual_fingering
-from pipeline.visual_fingering import (
+from main.video.hands import visual_fingering
+from main.video.hands.visual_fingering import (
     StringRowContact,
     VisualEvent,
     _event_alignment_score,
@@ -313,7 +313,7 @@ def test_visual_extraction_uses_video_timestamps_and_bounded_seeks(
     monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
     monkeypatch.setitem(sys.modules, "mediapipe", fake_mp)
     monkeypatch.setitem(sys.modules, "ultralytics", fake_ultralytics)
-    monkeypatch.setitem(sys.modules, "pipeline.rectify_atlas", fake_rectify)
+    monkeypatch.setitem(sys.modules, "main.video.fretboard.rectify_atlas", fake_rectify)
     monkeypatch.setattr(
         visual_fingering,
         "_native_yolo_proposals",

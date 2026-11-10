@@ -1,6 +1,6 @@
 import numpy as np
 
-from pipeline.audio_fusion import (
+from main.audio.audio_fusion import (
     AudioOnset,
     VisualCandidate,
     VisualFrame,

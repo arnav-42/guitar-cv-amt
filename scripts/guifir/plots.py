@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from pipeline.guifir import ClipReader, gt_geometry, gt_string_lines, load_rows
+from main.video.fretboard.guifir import ClipReader, gt_geometry, gt_string_lines, load_rows
 from scripts.guifir.common import EVAL_DIR, FIG_DIR, PRED_DIR
 
 G_DIR = EVAL_DIR / "test"

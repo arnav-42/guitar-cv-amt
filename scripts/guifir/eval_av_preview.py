@@ -23,7 +23,7 @@ import numpy as np
 from scripts.guifir.eval_audio import HIGH_FIRST, heard, positions
 from scripts.guifir.eval_notes import (fret_cell, fretting_tips, learn_offsets, load_lines, load_preds,
                                strings_from_lines)
-from pipeline.guifir import GUIFIR_DIR, NOT_PLAYED, gt_geometry, load_rows, to_template
+from main.video.fretboard.guifir import GUIFIR_DIR, NOT_PLAYED, gt_geometry, load_rows, to_template
 from scripts.guifir.common import EVAL_DIR, OUT
 
 COMPLETE = ("4", "8", "12", "16", "20", "lt", "lb", "rt", "rb")

@@ -24,7 +24,7 @@ PRED_DIR = OUT / "preds"
 EVAL_DIR = OUT / "eval"
 FIG_DIR = OUT / "figures"
 THIRD_PARTY = REPO / "third_party"
-YOLO_WEIGHTS = REPO / "pipeline" / "yolo_weights_best.pt"
+YOLO_WEIGHTS = REPO / "main" / "models" / "fretboard" / "yolo_weights_best.pt"
 
 
 def short_path(path):
@@ -89,7 +89,7 @@ _YOLO = {}
 
 def cached_mask(key, frame_bgr):
     """YOLO fretboard mask for a frame, cached as output/guifir/masks/<key>.png."""
-    from pipeline.string_detection import fretboard_mask, load_yolo_model
+    from main.video.fretboard.string_detection import fretboard_mask, load_yolo_model
     path = MASK_DIR / f"{key}.png"
     if path.exists():
         return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)

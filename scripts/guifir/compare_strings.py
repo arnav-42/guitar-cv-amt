@@ -3,8 +3,8 @@
 String detection on GuiFiR-Vid (external data, never used for tuning).
 
 GT strings: the 6 lines from the nut to fret 20, built from GuiFiR's four
-fretboard corners (pipeline.guifir). Every annotated frame: one YOLO mask ->
-ROI A (pipeline.string_detection.roi_a) and ROI B (roi_b), then
+fretboard corners (main.video.fretboard.guifir). Every annotated frame: one YOLO mask ->
+ROI A (main.video.fretboard.string_detection.roi_a) and ROI B (roi_b), then
   A               ROI A + comb_band_slope_strip_fan
   B               ROI B + lsd_strip_cascade (its own pipeline)
   fuse_arbitrate  ROI A, A and B combined; confident = A and B agree
@@ -24,8 +24,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from pipeline.guifir import ClipReader, gt_geometry, gt_string_lines, load_rows
-from pipeline.string_detection import (comb_band_slope_strip_fan, fuse_arbitrate, lsd_strip_cascade,
+from main.video.fretboard.guifir import ClipReader, gt_geometry, gt_string_lines, load_rows
+from main.video.fretboard.string_detection import (comb_band_slope_strip_fan, fuse_arbitrate, lsd_strip_cascade,
                                        roi_a, roi_b)
 from scripts.guifir.common import EVAL_DIR, OUT, cached_mask, score_lines, short_path, x_range
 

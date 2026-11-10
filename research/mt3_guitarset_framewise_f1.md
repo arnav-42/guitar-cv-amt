@@ -61,7 +61,7 @@ This is a small acoustic-guitar benchmark and should be described with its metri
 Reproduce with:
 
 ```bash
-uv run --python 3.10 --extra transcription -- python -m scripts.evaluate_mt3_guitarset_framewise
+uv run --python 3.10 --extra transcription -- python -m main.evaluation.audio.evaluate_mt3_guitarset_framewise
 ```
 
 The selected audio, MIDI files, and generated tab artifacts are cached in the system temporary directory and are not stored in the repository.

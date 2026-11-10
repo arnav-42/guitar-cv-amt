@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from pipeline.board_geometry import estimate_board_corners
+from main.video.fretboard.board_geometry import estimate_board_corners
 
 
 def _make_board(angle_degrees=14.0, length=270.0, width=74.0, center=(210.0, 120.0)):

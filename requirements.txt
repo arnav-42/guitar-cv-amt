@@ -4,7 +4,6 @@ mediapipe
 numpy
 jupyter
 gradio
-voici
 
 # Active fretboard segmentation pipeline
 Pillow

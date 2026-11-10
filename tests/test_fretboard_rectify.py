@@ -10,11 +10,11 @@ import pytest
 from PIL import Image
 from types import SimpleNamespace
 
-from pipeline import rectify_atlas
-from pipeline.fretboard_rectify import _line_candidates, rectify_fretboard
-from pipeline.fret_detect_yolo import rectify_perspective
-from pipeline.grid_warp import warp_grid
-from pipeline.string_evidence import detect_strings
+from main.video.fretboard import rectify_atlas
+from main.video.fretboard.fretboard_rectify import _line_candidates, rectify_fretboard
+from main.video.fretboard.fret_detect_yolo import rectify_perspective
+from main.video.fretboard.grid_warp import warp_grid
+from main.video.fretboard.string_evidence import detect_strings
 from tests.synthetic_fretboard import make_case
 
 
@@ -104,7 +104,7 @@ def test_model_free_cli_exports_real_image_and_inverse_geometry(tmp_path):
     Image.fromarray(scene.image).save(tmp_path/"frame.png")
     Image.fromarray(scene.mask).save(tmp_path/"mask.png")
     out = tmp_path/"atlas"
-    run = subprocess.run([sys.executable, "-m", "pipeline.rectify_atlas", "--image", str(tmp_path/"frame.png"),
+    run = subprocess.run([sys.executable, "-m", "main.video.fretboard.rectify_atlas", "--image", str(tmp_path/"frame.png"),
                           "--mask", str(tmp_path/"mask.png"), "--output-dir", str(out)],
                          cwd=Path(__file__).parents[1], capture_output=True, text=True)
     assert run.returncode == 0, run.stderr

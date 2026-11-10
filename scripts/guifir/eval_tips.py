@@ -29,7 +29,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from pipeline.guifir import LABEL_WIDTH, cell_hits, gt_geometry, load_rows, tab_targets, to_template
+from main.video.fretboard.guifir import LABEL_WIDTH, cell_hits, gt_geometry, load_rows, tab_targets, to_template
 from scripts.guifir.common import EVAL_DIR, PRED_DIR
 
 TIP_IDX = [4, 8, 12, 16, 20]

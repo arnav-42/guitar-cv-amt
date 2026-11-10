@@ -6,7 +6,7 @@ Most of the work here is still a WIP.
 
 ## Evidence-constrained fretboard atlas
 
-The new `pipeline.rectify_atlas` workflow fits the **internal fret/string grid**
+The new `main.video.fretboard.rectify_atlas` workflow fits the **internal fret/string grid**
 before resampling a playing frame into a standard 1024 x 256 rectangle. It
 compares YOLO and Mask R-CNN proposals, detects real wires, checks relative
 equal-temperament spacing, and uses an invertible cell mesh. Six strings map to
@@ -14,17 +14,17 @@ fixed rows; supported fret intervals can be made equal width. See the
 [method analysis and limitations](research/fretboard_atlas.md).
 
 ```bash
-python -m pipeline.rectify_atlas --image demos/fretboard_canonicalization/guitar_test_clean.png --output-dir output/atlas
+uv run --extra visual -- python -m main.video.fretboard.rectify_atlas --image main/assets/fretboard/guitar_test_clean.png --output-dir output/atlas
 
 # Use an existing mask without loading any neural model.
-python -m pipeline.rectify_atlas --image frame.png --mask mask.png --output-dir output/atlas
+uv run --extra visual -- python -m main.video.fretboard.rectify_atlas --image frame.png --mask mask.png --output-dir output/atlas
 
 # Faster single-model proposal path; default uses both bundled checkpoints.
-python -m pipeline.rectify_atlas --image frame.png --yolo-only --output-dir output/atlas
+uv run --extra visual -- python -m main.video.fretboard.rectify_atlas --image frame.png --yolo-only --output-dir output/atlas
 
 # Reproduce the synthetic comparison against the existing PCA warp.
-python scripts/benchmark_rectification.py --output-dir output/atlas-benchmark
-python -m pytest -q
+uv run --extra visual -- python -m main.evaluation.fretboard.benchmark_rectification --output-dir output/atlas-benchmark
+uv run --with pytest -- pytest -q
 ```
 
 Outputs include `rectified.png`, a separate `grid_overlay.png`, `source_grid.png`,
@@ -44,52 +44,40 @@ available as the historical baseline.
 | Compare approaches | Evaluation of Mask R-CNN and optional YOLO masks across six fret-line methods |
 | Explore related ideas | Canonicalization, FFT chord-candidate, webcam hand-tracking, and strum/pick demos |
 
-The active script workflow is grouped in [`pipeline/`](pipeline/). Exploratory work, demos, published notebooks, and frozen experiments remain separate from it.
+The importable source package is grouped under [`main/`](main/) by domain:
+audio transcription, video/fretboard and hand workflows, training, evaluation,
+models, assets, and frozen deprecated experiments.
 
 ## Quick start: estimate frets in one image
 
 1. Install the [Git LFS](https://git-lfs.com/) command-line tool before cloning when possible. If the repository is already cloned, the `git lfs install` and `git lfs pull` commands below fetch the bundled checkpoints.
-2. Create a Python environment and install the project dependencies:
+2. Sync the project environment with [uv](https://docs.astral.sh/uv/):
 
    ```bash
-   python -m venv .venv
-   ```
-
-   **Windows PowerShell:**
-
-   ```powershell
-   .\.venv\Scripts\Activate.ps1
-   ```
-
-   **macOS/Linux:**
-
-   ```bash
-   source .venv/bin/activate
-   ```
-
-   ```bash
-   python -m pip install --upgrade pip
-   python -m pip install -r requirements.txt
+   uv sync
    git lfs install
    git lfs pull
    ```
 
-   The active segmentation scripts use PyTorch. If the `torch` installation needs CUDA or another accelerator-specific build, install the appropriate version from [PyTorch](https://pytorch.org/get-started/locally/) first, then install the remaining requirements.
+   The optional `visual` and `transcription` dependency groups are added on the
+   commands below. If the `torch` installation needs CUDA or another
+   accelerator-specific build, follow the appropriate [PyTorch instructions](https://pytorch.org/get-started/locally/)
+   before running the relevant `uv` command.
 
 3. Run the existing YOLO model on a guitar image:
 
    ```bash
-   python pipeline/fret_detect_yolo.py \
+   uv run --extra visual -- python -m main.video.fretboard.fret_detect_yolo \
      --image path/to/guitar.jpg \
      --visualize \
      --output result.png
    ```
 
-   This command uses `pipeline/yolo_weights_best.pt` by default. It draws the inferred fretboard mask and estimated fret lines on `result.png`.
+   This command uses `main/models/fretboard/yolo_weights_best.pt` by default. It draws the inferred fretboard mask and estimated fret lines on `result.png`.
 
 ## Transcribe a performance video
 
-[`pipeline/video_to_score.py`](pipeline/video_to_score.py) accepts a local video
+[`main/audio/video_to_score.py`](main/audio/video_to_score.py) accepts a local video
 or a single YouTube video URL, transcribes its audio with MT3-Infer, and saves a
 WAV, MIDI, six-line ASCII guitar tablature, and editable MusicXML score. FFmpeg
 must be installed and available on `PATH`.
@@ -99,7 +87,7 @@ default `.python-version` is 3.9, so ask `uv` to use 3.10 for this command and
 include the optional `transcription` dependencies:
 
 ```bash
-uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score "https://www.youtube.com/watch?v=VIDEO_ID"
+uv run --python 3.10 --extra transcription -- python -m main.audio.video_to_score "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
 The first run installs the dependencies and downloads the default MR-MT3
@@ -111,7 +99,7 @@ YouTube playlists are not supported; provide a link to one video.
 Choose a different model, device, or output directory as needed:
 
 ```bash
-uv run --python 3.10 --extra transcription -- python -m pipeline.video_to_score "https://youtu.be/VIDEO_ID" \
+uv run --python 3.10 --extra transcription -- python -m main.audio.video_to_score "https://youtu.be/VIDEO_ID" \
   --model mt3_pytorch --device cuda \
   --output-dir output/performance
 ```
@@ -152,7 +140,7 @@ MT3-Infer model; outputs and cached MIDI are kept separate by model:
 
 ```bash
 uv run --python 3.10 --extra transcription -- \
-  python -m scripts.evaluate_mt3_guitarset_framewise --model yourmt3
+  python -m main.evaluation.audio.evaluate_mt3_guitarset_framewise --model yourmt3
 ```
 
 Use `--model mr_mt3` or `--model mt3_pytorch` for the other baselines. YourMT3
@@ -167,7 +155,7 @@ Visual analysis is opt-in and is available for local videos only.  Use Python
 
 ```bash
 uv run --python 3.10 --extra transcription --extra visual -- \
-  python -m pipeline.video_to_score path/to/performance.mp4 \
+  python -m main.audio.video_to_score path/to/performance.mp4 \
   --visual --output-dir output/performance
 ```
 
@@ -196,8 +184,8 @@ the baseline and diagnostics records the observed failure or quality status.
 YouTube URLs before download; YouTube remains audio-only.  `--overwrite`
 protects all enabled outputs, including both tablature files and diagnostics.
 
-The bundled YOLO checkpoint (`pipeline/yolo_weights_best.pt`) and MediaPipe
-Tasks model (`scripts/hand_landmarker.task`) are repository-relative defaults.
+The bundled YOLO checkpoint (`main/models/fretboard/yolo_weights_best.pt`) and MediaPipe
+Tasks model (`main/models/hands/hand_landmarker.task`) are repository-relative defaults.
 Fetch large files with Git LFS (`git lfs install && git lfs pull`), and install
 FFmpeg on `PATH` for audio extraction.  A static, well-lit frame with a clear
 fretboard and visible fretting fingers is the most favorable case; occlusion,
@@ -210,12 +198,12 @@ The fixed eight-clip MT3 benchmark writes its metrics to
 [`research/mt3_guitarset_framewise_f1.md`](research/mt3_guitarset_framewise_f1.md)
 and its aligned ground-truth versus generated tab systems to
 [`research/mt3_guitarset_tab_comparisons.md`](research/mt3_guitarset_tab_comparisons.md).
-Use `--comparisons PATH` on
-`scripts.evaluate_mt3_guitarset_framewise` to choose a different comparison
-report location.
+Use `--comparisons PATH` with
+`uv run --python 3.10 --extra transcription -- python -m main.evaluation.audio.evaluate_mt3_guitarset_framewise`
+to choose a different comparison report location.
 
 
-## Active pipeline
+## Active workflow
 
 ```mermaid
 flowchart TD
@@ -232,10 +220,10 @@ flowchart TD
 
 ### 1. Provide the dataset
 
-The repository does not contain training data. The active scripts expect a local COCO-style dataset at `pipeline/dataset/`:
+The repository does not contain training data. The active scripts expect a local COCO-style dataset at `main/data/fretboard/coco/`:
 
 ```text
-pipeline/dataset/
+main/data/fretboard/coco/
 ├── train/
 │   ├── _annotations.coco.json
 │   └── image files
@@ -254,45 +242,45 @@ The local dataset, converted YOLO dataset, and YOLO training-run directory are i
 **YOLOv8 path** — convert the COCO annotations, then train:
 
 ```bash
-python pipeline/convert_coco_to_yolo.py
-python pipeline/train_yolo.py
+uv run --extra visual -- python -m main.training.fretboard.convert_coco_to_yolo
+uv run --extra visual -- python -m main.training.fretboard.train_yolo
 ```
 
-- Conversion creates `pipeline/dataset_yolo/`, removes any previous version of that directory, and makes symlinks to the source images. On Windows, symlink creation may require Developer Mode or elevated permissions.
-- YOLO training reads `pipeline/dataset_yolo/dataset.yaml`, writes run files to `pipeline/yolo_runs/`, and copies the selected model to `pipeline/yolo_weights_best.pt`.
+- Conversion creates `main/data/fretboard/yolo/`, removes any previous version of that directory, and makes symlinks to the source images. On Windows, symlink creation may require Developer Mode or elevated permissions.
+- YOLO training reads `main/data/fretboard/yolo/dataset.yaml`, writes run files to `main/data/fretboard/yolo_runs/`, and copies the selected model to `main/models/fretboard/yolo_weights_best.pt`.
 - Optional training controls are available, for example:
 
   ```bash
-  python pipeline/train_yolo.py --model yolov8s-seg --epochs 100 --imgsz 640 --batch 8
+  uv run --extra visual -- python -m main.training.fretboard.train_yolo --model yolov8s-seg --epochs 100 --imgsz 640 --batch 8
   ```
 
 **Mask R-CNN path** — train directly from the COCO dataset:
 
 ```bash
-python pipeline/train_mask.py
+uv run --extra visual -- python -m main.training.fretboard.train_mask
 ```
 
-This writes `pipeline/model_weights_new.pt`. The existing `pipeline/model_weights.pt` is the default Mask R-CNN checkpoint used by the evaluator; do not use either Mask R-CNN file with the YOLO scripts.
+This writes `main/models/fretboard/model_weights_new.pt`. The existing
+`main/models/fretboard/model_weights.pt` is the default Mask R-CNN checkpoint
+used by the evaluator; do not use either Mask R-CNN file with the YOLO training commands.
 
 ### 3. Estimate frets from an image
 
-[`pipeline/fret_detect_yolo.py`](pipeline/fret_detect_yolo.py) first predicts a fretboard segmentation mask. It then cleans that mask, estimates the fretboard corners with PCA, warps the board to a standard rectangle, and uses the Rule of 18 to project up to 21 fret positions back onto the original image.
+[`main/video/fretboard/fret_detect_yolo.py`](main/video/fretboard/fret_detect_yolo.py) first predicts a fretboard segmentation mask. It then cleans that mask, estimates the fretboard corners with PCA, warps the board to a standard rectangle, and uses the Rule of 18 to project up to 21 fret positions back onto the original image.
 
 This is a geometry-based estimate from the fretboard mask. It does **not** independently detect every physical fret wire in the image.
 
 ```bash
-python pipeline/fret_detect_yolo.py \
+uv run --extra visual -- python -m main.video.fretboard.fret_detect_yolo \
   --image path/to/guitar.jpg \
-  --weights pipeline/yolo_weights_best.pt \
+  --weights main/models/fretboard/yolo_weights_best.pt \
   --visualize --output result.png
 ```
 
 ### 4. Explore interactively
 
-Launch the Gradio interface with:
-
 ```bash
-python pipeline/gradio_demo.py
+uv run --extra visual -- python -m main.video.fretboard.gradio_demo
 ```
 
 The demo exposes the annotated input image, the top-down rectified fretboard,
@@ -301,16 +289,16 @@ from the command-line detector; use `--json` for JSON output and
 `--rectified-output` to save the warped fretboard image:
 
 ```bash
-python pipeline/fret_detect_yolo.py \
+uv run --extra visual -- python -m main.video.fretboard.fret_detect_yolo \
   --image path/to/guitar.jpg \
   --json results.json
-python pipeline/fret_detect_yolo.py \
+uv run --extra visual -- python -m main.video.fretboard.fret_detect_yolo \
   --image path/to/guitar.jpg \
   --rectified-output rectified.png \
   --visualize --output annotated.png
 
 # Save all three CLI outputs in one run: annotated image, rectified image, JSON.
-python pipeline/fret_detect_yolo.py \
+uv run --extra visual -- python -m main.video.fretboard.fret_detect_yolo \
   --image path/to/guitar.jpg \
   --visualize --output annotated.png \
   --rectified-output rectified.png \
@@ -319,53 +307,53 @@ python pipeline/fret_detect_yolo.py \
 
 ### 5. Evaluate the approaches
 
-[`pipeline/evaluate_all.py`](pipeline/evaluate_all.py) measures segmentation quality and runs six fret-line estimation methods on the available `valid` and `test` splits. It always evaluates a Mask R-CNN checkpoint and can optionally evaluate YOLO as well:
+[`main/evaluation/fretboard/evaluate_all.py`](main/evaluation/fretboard/evaluate_all.py) measures segmentation quality and runs six fret-line estimation methods on the available `valid` and `test` splits. It always evaluates a Mask R-CNN checkpoint and can optionally evaluate YOLO as well:
 
 ```bash
-python pipeline/evaluate_all.py \
-  --weights pipeline/model_weights_new.pt \
-  --yolo-weights pipeline/yolo_weights_best.pt
+uv run --extra visual -- python -m main.evaluation.fretboard.evaluate_all \
+  --weights main/models/fretboard/model_weights_new.pt \
+  --yolo-weights main/models/fretboard/yolo_weights_best.pt
 ```
 
-The command overwrites `pipeline/evaluation_results.csv` with the latest results.
+The command overwrites `research/fretboard/evaluation_results.csv` with the latest results.
 
-## Pipeline workspace
+## Source and artifact layout
 
-All path-dependent production files are intentionally co-located in [`pipeline/`](pipeline/) so their existing sibling-relative data, model, and output paths continue to work without source-code changes.
+All importable source modules live under [`main/`](main/) and are grouped by
+domain. Training data and generated runs are kept under `main/data/`; model
+checkpoints are under `main/models/`; generated research records are under
+`research/fretboard/`.
 
 | Stage | Files | Purpose |
 | --- | --- | --- |
-| Data preparation | `convert_coco_to_yolo.py` | Converts annotated COCO splits into a one-class YOLO segmentation dataset |
-| Training | `train_yolo.py`, `train_mask.py` | Trains YOLOv8 segmentation or Mask R-CNN from the local dataset |
-| Inference | `fret_detect_yolo.py` | Segments a guitar fretboard and estimates fret positions in one image |
-| Evaluation | `evaluate_all.py`, `evaluation_results.csv` | Compares models and fret-line methods, then records metrics |
-| Model artifacts | `yolo_weights_best.pt`, `model_weights.pt`, `model_weights_new.pt` | Checkpoints tied to their respective YOLO or Mask R-CNN workflows |
-| Recorded analysis | `yolo_comparison_results.md` | Summary of the stored Mask R-CNN versus YOLO experiment |
+| Data preparation | `main/training/fretboard/convert_coco_to_yolo.py` | Converts annotated COCO splits into a one-class YOLO segmentation dataset |
+| Training | `main/training/fretboard/train_yolo.py`, `main/training/fretboard/train_mask.py` | Trains YOLOv8 segmentation or Mask R-CNN from the local dataset |
+| Inference | `main/video/fretboard/fret_detect_yolo.py` | Segments a guitar fretboard and estimates fret positions in one image |
+| Evaluation | `main/evaluation/fretboard/evaluate_all.py`, `research/fretboard/evaluation_results.csv` | Compares models and fret-line methods, then records metrics |
+| Model artifacts | `main/models/fretboard/yolo_weights_best.pt`, `main/models/fretboard/model_weights.pt`, `main/models/fretboard/model_weights_new.pt` | Checkpoints tied to their respective YOLO or Mask R-CNN workflows |
+| Recorded analysis | `research/fretboard/yolo_comparison_results.md` | Summary of the stored Mask R-CNN versus YOLO experiment |
 
 ## Other parts of the repository
 
 | Location | Contents | When to use it |
 | --- | --- | --- |
 | [`notebooks/`](notebooks/) | Canonicalization, FFT chord-candidate, and template notebooks | Explore experiments interactively |
-| [`demos/fretboard_canonicalization/`](demos/fretboard_canonicalization/) | A dedicated canonicalization notebook, environment file, model, and Hough video demo | Run the standalone canonicalization experiment |
-| [`scripts/`](scripts/) | Webcam hand-landmark and guitar/strum-pick demos | Try live, camera-based experiments; a webcam and optional local model downloads may be required |
-| [`docs/`](docs/) | Generated JupyterLite/Voici static demo site | Browse the published interactive notebook output |
+| [`main/video/fretboard/`](main/video/fretboard/) | Fretboard geometry, rectification, Gradio, and video demos | Run image and video fretboard workflows |
+| [`main/video/hands/`](main/video/hands/) | Visual fingering and hand-landmark demos | Try local-video or live-camera hand analysis |
 | [`binder/`](binder/) | Binder-specific setup and dependencies | Build the hosted notebook environment |
-| [`deprecated/`](deprecated/) | Frozen legacy experiments | Reference only; not part of the active workflow |
+| [`main/deprecated/`](main/deprecated/) | Frozen legacy experiments | Reference only; not part of the active workflow |
 | `Untitled0.ipynb` | Empty historical Colab stub | Not part of the supported workflow |
 
 ### Interactive notebooks
 
 - [Canonical fretboard notebook](notebooks/canonical_fretboard.ipynb)
 - [FFT chord-candidate notebook](notebooks/fft_chord_candidates.ipynb)
-- [Published canonicalization demo](docs/voici/render/canonical_fretboard.html)
-- [Published FFT chord-candidate demo](docs/voici/render/fft_chord_candidates.html)
 
 The notebook and webcam demos are exploratory tools, not a complete chord-recognition or transcription system.
 
 ## Existing experiment results
 
-The stored [YOLO vs. Mask R-CNN comparison](pipeline/yolo_comparison_results.md) and [detailed CSV metrics](pipeline/evaluation_results.csv) record results from one local experiment. They are useful for understanding the tested models and fret-line methods, but should not be treated as a general performance guarantee because the dataset, hardware, and broader evaluation protocol are not distributed here.
+The stored [YOLO vs. Mask R-CNN comparison](research/fretboard/yolo_comparison_results.md) and [detailed CSV metrics](research/fretboard/evaluation_results.csv) record results from one local experiment. They are useful for understanding the tested models and fret-line methods, but should not be treated as a general performance guarantee because the dataset, hardware, and broader evaluation protocol are not distributed here.
 
 ## New Members
 

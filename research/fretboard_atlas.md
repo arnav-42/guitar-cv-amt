@@ -5,8 +5,8 @@ Implemented and evaluated on September 29, 2026.
 **Recommendation:** use a segmentation ensemble to propose the neck, recover its
 internal fret/string lattice from image evidence, and rectify that lattice with
 a checked, invertible mesh. A rectangular crop alone is an insufficient target.
-The implementation is in `pipeline/fretboard_rectify.py`; the end-to-end entry
-point is `python -m pipeline.rectify_atlas`.
+The implementation is in `main/video/fretboard/fretboard_rectify.py`; the end-to-end entry
+point is `uv run --extra visual -- python -m main.video.fretboard.rectify_atlas`.
 
 This is a stronger candidate for this repository's standardized-grid objective,
 with a measured improvement on the synthetic perspective case and useful output
@@ -24,7 +24,7 @@ throughout; the relevant visual progression includes pages 20-21, 34-35, 58,
 | Existing approach | Evidence | Limitation for this task |
 | --- | --- | --- |
 | Segmentation + minimum-area rectangle | Canonicalization notebooks; slide 93 | Removes rotation, but a rectangle around a trapezoid does not recover its actual end caps or internal transverse direction. The visibly slanted frets remain in the crop. |
-| PCA + tapered rails + homography (B) | `pipeline/fret_detect_yolo.py`; slides 124-125, 137 | Best available stored aggregate fret F1: YOLO 0.8067 at 2%, 0.6333 at 1%. Corners and end direction come from mask geometry; no real fret-wire measurements constrain the warp. |
+| PCA + tapered rails + homography (B) | `main/video/fretboard/fret_detect_yolo.py`; slides 124-125, 137 | Best available stored aggregate fret F1: YOLO 0.8067 at 2%, 0.6333 at 1%. Corners and end direction come from mask geometry; no real fret-wire measurements constrain the warp. |
 | PCA without warp (C) | Evaluator; slide 137 | Strong strict-threshold score, but it does not produce the requested rectified texture. |
 | Rotation/shear + Hough/projection (D/E) | Evaluator; slides 88-91 | Background lines and hand edges can dominate; one angle/shear cannot repair arbitrary local errors. |
 | Sobel peaks in the warped mask (F) | Evaluator; slides 122-125 | Avoids unconditional phantom frets but loses recall and inherits the original corner error. |
@@ -118,7 +118,7 @@ are not yet modeled.
 
 ## What was measured
 
-Run `python scripts/benchmark_rectification.py --output-dir output/rectification/benchmark`.
+Run `uv run --extra visual -- python -m main.evaluation.fretboard.benchmark_rectification --output-dir output/rectification/benchmark`.
 The deterministic fixture renders a physically tapered board, fanning strings,
 equal-temperament frets, wood texture and dots, projects it into a camera frame,
 and retains exact floating-point crossing coordinates. It includes perspective,
@@ -161,10 +161,12 @@ The bundled 1920 x 1080 playing frame also runs through the real models. YOLO
 supports 10 observed fret wires in its shortened region; the original Mask
 R-CNN proposal supports 18 and is selected. The string-profile fallback obtains
 six supported strings. This is qualitative evidence, not an annotated accuracy
-measurement. `model_weights.pt` and the demo's identically named checkpoint
-have identical SHA-256 hashes. The newer `model_weights_new.pt` produced several
-shorter proposals on this frame, so the original board checkpoint is the default
-second model. No claim is made that it wins on other guitars.
+measurement. The canonical `main/models/fretboard/model_weights.pt` was
+verified against the duplicate demo checkpoint before that duplicate was
+removed; their SHA-256 hashes were identical. The newer
+`main/models/fretboard/model_weights_new.pt` produced several shorter proposals
+on this frame, so the original board checkpoint is the default second model.
+No claim is made that it wins on other guitars.
 
 Default output is at `output/rectification/example/rectified.png`; the grid
 overlay is a separate file. Occluding fingers remain visible in the output.
@@ -174,17 +176,17 @@ Outputs under `output/` and inspection files under `tmp/` are ignored by Git.
 
 ```bash
 # End-to-end ensemble using the two bundled model weights.
-python -m pipeline.rectify_atlas --image frame.png --output-dir output/atlas
+uv run --extra visual -- python -m main.video.fretboard.rectify_atlas --image frame.png --output-dir output/atlas
 
 # Existing segmentation and optional hand mask; no model load.
-python -m pipeline.rectify_atlas --image frame.png --mask neck.png --occlusion-mask hand.png --output-dir output/atlas
+uv run --extra visual -- python -m main.video.fretboard.rectify_atlas --image frame.png --mask neck.png --occlusion-mask hand.png --output-dir output/atlas
 
 # Lower-cost YOLO-only proposal path, or preserve observed x spacing.
-python -m pipeline.rectify_atlas --image frame.png --yolo-only --spacing observed --output-dir output/atlas
+uv run --extra visual -- python -m main.video.fretboard.rectify_atlas --image frame.png --yolo-only --spacing observed --output-dir output/atlas
 ```
 
 ```python
-from pipeline.fretboard_rectify import rectify_fretboard
+from main.video.fretboard.fretboard_rectify import rectify_fretboard
 
 result = rectify_fretboard(rgb_uint8, neck_mask, output_size=(1024, 256))
 if result is not None and result.quality["status"] == "grid":

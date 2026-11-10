@@ -9,9 +9,8 @@ import json
 import cv2
 import numpy as np
 
-from pipeline import fret_detect_yolo as detector
-from pipeline import gradio_demo
-
+from main.video.fretboard import fret_detect_yolo as detector
+from main.video.fretboard import gradio_demo
 
 def _synthetic_board():
     """Return an RGB image and a slightly skewed, filled board mask."""

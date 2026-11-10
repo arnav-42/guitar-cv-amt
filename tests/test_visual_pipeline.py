@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import video_to_score
-from pipeline.guitar_tab import ScoreNoteId
-from pipeline.visual_fingering import VisualAlignment, VisualInferenceResult
+from main.audio import video_to_score
+from main.audio.guitar_tab import ScoreNoteId
+from main.video.hands.visual_fingering import VisualAlignment, VisualInferenceResult
 
 
 def _write_single_note_midi(path: Path) -> None:

@@ -25,10 +25,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Local pipeline data and generated training artifacts
-pipeline/dataset/
-pipeline/dataset_yolo/
-pipeline/yolo_runs/
+# Local training data and generated artifacts
+main/data/fretboard/coco/
+main/data/fretboard/yolo/
+main/data/fretboard/yolo_runs/
 
 # Local inspection and generated rectification artifacts
 tmp/

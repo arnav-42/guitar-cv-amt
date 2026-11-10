@@ -6,9 +6,9 @@ import json
 import sys
 from pathlib import Path
 
-import scripts.evaluate_mt3_guitarset_framewise as evaluator
-from pipeline.guitar_tab import TabNote
-from scripts.evaluate_mt3_guitarset_framewise import (
+import main.evaluation.audio.evaluate_mt3_guitarset_framewise as evaluator
+from main.audio.guitar_tab import TabNote
+from main.evaluation.audio.evaluate_mt3_guitarset_framewise import (
     ROW_RANGES,
     align_tab_event_groups,
     evaluate_tab_notes,

@@ -93,7 +93,7 @@ def main():
     args = p.parse_args()
 
     sys.path.insert(0, str(ROOT))
-    from pipeline.guifir import ClipReader, load_rows   # before chdir: paths are absolute
+    from main.video.fretboard.guifir import ClipReader, load_rows   # before chdir: paths are absolute
     rows = load_rows(args.split)
     rows = rows[:args.limit] if args.limit else rows
     out = ROOT / "output" / "guifir" / "preds" / f"{args.model}_{args.split}.jsonl"

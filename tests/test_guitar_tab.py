@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from pipeline.guitar_tab import (
+from main.audio.guitar_tab import (
     STANDARD_TUNING_MIDI,
     TabNote,
     midi_to_tab_notes,
     render_ascii_tab,
 )
-from pipeline import video_to_score
+from main.audio import video_to_score
 
 
 def _write_midi(tmp_path: Path, notes: list[tuple[float, float, float]], *, drums=()):

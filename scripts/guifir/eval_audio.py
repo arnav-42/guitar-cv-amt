@@ -19,7 +19,7 @@ import json
 import cv2
 import numpy as np
 
-from pipeline.guifir import GUIFIR_DIR, NOT_PLAYED, load_rows
+from main.video.fretboard.guifir import GUIFIR_DIR, NOT_PLAYED, load_rows
 from scripts.guifir.common import EVAL_DIR, OUT
 
 HIGH_FIRST = [64, 59, 55, 50, 45, 40]   # E4 B3 G3 D3 A2 E2
