@@ -48,6 +48,22 @@ def test_synthetic_mask_produces_ordered_fret_geometry():
     assert np.all(np.diff(positions) > -1e-3)
 
 
+def test_clean_mask_retains_aligned_board_fragments_split_by_hand():
+    mask = np.zeros((180, 520), dtype=np.uint8)
+    cv2.rectangle(mask, (35, 65), (210, 115), 255, -1)
+    cv2.rectangle(mask, (280, 67), (465, 113), 255, -1)
+    cv2.rectangle(mask, (30, 5), (95, 30), 255, -1)  # unrelated region
+
+    cleaned = detector._clean_mask(mask)
+
+    assert cleaned[90, 100] == 255
+    assert cleaned[90, 370] == 255
+    assert cleaned[15, 60] == 0
+    corners = detector._pca_corners(cleaned)
+    assert corners is not None
+    assert np.ptp(corners[:, 0]) > 400
+
+
 def test_rectify_fretboard_honors_output_size():
     """Exercise the public warp helper without requiring a model checkpoint."""
     image, mask = _synthetic_board()

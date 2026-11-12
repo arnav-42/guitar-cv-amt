@@ -415,7 +415,15 @@ def _event_alignment_score(
             for contact_index, contact in enumerate(event.contacts):
                 if require_fret_region and contact.fret_region != position.fret_idx:
                     continue
-                score = _contact_score(contact, row)
+                if require_fret_region:
+                    # A numbered fret plus the audio pitch already identifies
+                    # one physical string (adjacent strings are 4–5 semitones
+                    # apart). A fingertip can sit above the string it presses,
+                    # so use its row only as a weak tie-break in this mode.
+                    row_score = _contact_score(contact, row)
+                    score = min(1.0, max(0.0, contact.confidence)) * (0.82 + 0.18 * row_score)
+                else:
+                    score = _contact_score(contact, row)
                 if score >= MIN_CONTACT_SCORE:
                     note_options.append((score, position, contact_index))
         note_options.sort(
@@ -633,7 +641,12 @@ def infer_visual_alignment(
         for note_index, position, contact_index in edges:
             note = group[note_index]
             row = float(best_order.index(position.string_idx))
-            value = _contact_score(event.contacts[contact_index], row)
+            if require_fret_region:
+                contact = event.contacts[contact_index]
+                row_score = _contact_score(contact, row)
+                value = min(1.0, max(0.0, contact.confidence)) * (0.82 + 0.18 * row_score)
+            else:
+                value = _contact_score(event.contacts[contact_index], row)
             if value < MIN_CONTACT_SCORE:
                 continue
             likelihoods.setdefault(note.identity, {})[position] = max(
@@ -940,7 +953,12 @@ def _landmark_point(landmark: Any, width: int, height: int) -> tuple[float, floa
 
 
 def _relative_contact(atlas: Any, tip: Any, distal: Any, frame_shape: tuple[int, int], cv2: Any, np: Any, *, finger: str, confidence: float, time_sec: float, frame_index: int, calibration: Any = None) -> StringRowContact | None:
-    """Map a fingertip to an atlas row and optional calibrated fret region."""
+    """Map a fingertip to a string row and optional calibrated fret region.
+
+    A tracked calibration already defines both axes of the fretboard.  In that
+    case the YOLO/EFA atlas must not veto the contact or supply a conflicting
+    string row: a partial mask can describe only the nut end of a visible neck.
+    """
     try:
         confidence = float(confidence)
     except (TypeError, ValueError, OverflowError):
@@ -961,6 +979,34 @@ def _relative_contact(atlas: Any, tip: Any, distal: Any, frame_shape: tuple[int,
         )
         if source_distance > max(width, height) * 0.35:
             return None
+    if calibration is not None:
+        try:
+            board_x, board_y = map(float, calibration.image_to_board([tip_point])[0])
+            continuous_fret = calibration.continuous_fret(board_x)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return None
+        if (
+            continuous_fret is None
+            or not math.isfinite(continuous_fret)
+            or not math.isfinite(board_y)
+            or not 0.0 <= board_y <= 1.0
+            or not 0.0 < continuous_fret <= calibration.far_fret
+        ):
+            return None
+        fret_region = math.ceil(continuous_fret)
+        if min(continuous_fret - (fret_region - 1), fret_region - continuous_fret) < MIN_FRET_WIRE_MARGIN:
+            return None
+        return StringRowContact(
+            row=board_y * 5.0,
+            confidence=confidence,
+            finger=finger,
+            time_sec=time_sec,
+            frame_index=frame_index,
+            source_x=tip_point[0],
+            fret_region=fret_region,
+        )
+    if atlas is None:
+        return None
     try:
         mapped_points = np.asarray(
             atlas.image_to_grid(np.asarray([tip_point], dtype=np.float64)),
@@ -1003,24 +1049,6 @@ def _relative_contact(atlas: Any, tip: Any, distal: Any, frame_shape: tuple[int,
     row = float(np.interp(mapped[1], row_axis, np.arange(6, dtype=np.float64)))
     if not math.isfinite(row):
         return None
-    fret_region = None
-    if calibration is not None:
-        try:
-            board_x, board_y = map(float, calibration.image_to_board([tip_point])[0])
-            continuous_fret = calibration.continuous_fret(board_x)
-        except (AttributeError, TypeError, ValueError, OverflowError):
-            return None
-        if (
-            continuous_fret is None
-            or not math.isfinite(continuous_fret)
-            or not 0.0 <= board_y <= 1.0
-            or not 0.0 < continuous_fret <= calibration.far_fret
-        ):
-            return None
-        fret_region = math.ceil(continuous_fret)
-        # Near a wire, a small mapping error changes the numbered cell.
-        if min(continuous_fret - (fret_region - 1), fret_region - continuous_fret) < MIN_FRET_WIRE_MARGIN:
-            return None
     return StringRowContact(
         row,
         confidence,
@@ -1028,7 +1056,7 @@ def _relative_contact(atlas: Any, tip: Any, distal: Any, frame_shape: tuple[int,
         time_sec,
         frame_index,
         source_x=tip_point[0],
-        fret_region=fret_region,
+        fret_region=None,
     )
 
 
@@ -1298,6 +1326,7 @@ def extract_visual_events(
             if tracking is not None:
                 summary["tracking"] = dict(tracking)
             frame_contact_count = 0
+            frame_contact_details: list[dict[str, Any]] = []
             frame_regions: set[int] = set()
             frame_fingertips: list[dict[str, Any]] = []
             grid_usable = False
@@ -1311,7 +1340,7 @@ def extract_visual_events(
                     frames_with_grid += 1
                     summary["status"] = "grid"
                     grid_usable = True
-            if grid_usable or frame_index in debug_indices:
+            if grid_usable or board is not None or frame_index in debug_indices:
                 image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 timestamp_ms = max(
                     int(round(frame_index / fps * 1000.0)),
@@ -1329,7 +1358,7 @@ def extract_visual_events(
                         distal_point = _landmark_point(distal, rgb.shape[1], rgb.shape[0])
                         confidence = _landmark_confidence(tip)
                         contact = None
-                        if grid_usable and (calibration is None or board is not None):
+                        if board is not None or (grid_usable and calibration is None):
                             contact = _relative_contact(
                                 atlas,
                                 tip,
@@ -1352,12 +1381,20 @@ def extract_visual_events(
                             })
                         if contact is not None:
                             frame_contact_count += 1
+                            frame_contact_details.append({
+                                "finger": finger,
+                                "row": contact.row,
+                                "fret_region": contact.fret_region,
+                                "confidence": contact.confidence,
+                                "source_x": contact.source_x,
+                            })
                             if contact.fret_region is not None:
                                 frame_regions.add(contact.fret_region)
                             for group_index in group_indices:
                                 events_contacts[group_index].append(contact)
                                 event_frames[group_index].add(frame_index)
             summary["contact_count"] = frame_contact_count
+            summary["contacts"] = frame_contact_details
             if calibration is not None:
                 summary["fret_regions"] = sorted(frame_regions)
             quality_summaries.append(summary)

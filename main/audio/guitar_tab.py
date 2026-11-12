@@ -21,6 +21,7 @@ MAX_FRET = 24
 ONSET_GROUP_TOLERANCE_SEC = 0.05
 _MAX_CANDIDATES_PER_CHORD = 4096
 _VISUAL_COST_WEIGHT = 24.0
+_OPEN_STRING_REWARD = 2.0
 
 
 
@@ -196,7 +197,13 @@ def _candidate_intrinsic_cost(candidate: _ChordCandidate) -> float:
     # Span dominates: keeping a chord under one hand is preferable to
     # independently taking the lowest fret for every pitch.  A small center
     # term breaks equally compact-position ties toward the nut.
-    return 8.0 * fret_span + 0.75 * fret_center + 0.15 * string_span
+    # An open string requires no fretting finger. Give it a small ergonomic
+    # advantage, without letting that advantage outweigh a large hand shift.
+    open_strings = sum(fret == 0 for fret in frets)
+    return (
+        8.0 * fret_span + 0.75 * fret_center + 0.15 * string_span
+        - _OPEN_STRING_REWARD * open_strings
+    )
 
 
 def _transition_cost(previous: _ChordCandidate, current: _ChordCandidate) -> float:

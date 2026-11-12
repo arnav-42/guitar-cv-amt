@@ -144,7 +144,8 @@ def load_calibration(args, video, out, fps_src):
 
 def observe_video(video, calibration, reference_index, fps, detector, settings, cache_path):
     """Sample frames, track the board from the reference frame, detect hands; cached as JSON."""
-    key = dict(fps=fps, corners=[list(p) for p in calibration.corners], reference_frame=reference_index)
+    key = dict(fps=fps, calibration=json.loads(json.dumps(calibration.to_dict())),
+               reference_frame=reference_index)
     cache = json.loads(cache_path.read_text()) if cache_path.is_file() else {}
     stored = cache.get("frames", {}) if cache.get("key") == key else {}
     cap = cv2.VideoCapture(str(video))
@@ -165,11 +166,10 @@ def observe_video(video, calibration, reference_index, fps, detector, settings, 
             image = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
             board, tracking = track_calibration(reference, image, calibration)
             hands = detector.detect_hands(image, board) if board else []
-            stored[str(index)] = dict(corners=board.corners if board else None, tracking=tracking,
+            stored[str(index)] = dict(board=board.to_dict() if board else None, tracking=tracking,
                                       hands=[dict(h, points=h["points"].tolist()) for h in hands])
         entry = stored[str(index)]
-        board = (BoardCalibration(tuple(map(tuple, entry["corners"])), calibration.far_fret,
-                                  calibration.top_string, calibration.tuning) if entry["corners"] else None)
+        board = BoardCalibration.from_dict(entry["board"]) if entry["board"] else None
         hands = [dict(h, points=np.asarray(h["points"])) for h in entry["hands"]]
         frames.append(dict(index=index, time=index / src_fps, calibration=board,
                            observation=frame_observation(hands, board, settings) if board else None))

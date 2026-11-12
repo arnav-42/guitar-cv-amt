@@ -159,13 +159,15 @@ uv run --python 3.10 --extra transcription --extra visual -- \
   --visual --output-dir output/performance
 ```
 
-Visual mode always transcribes audio first.  MIDI pitch and onset timing remain
-authoritative; YOLO fretboard masks, EFA (`rectify_fretboard`), and MediaPipe
-Hands extract continuous fingertip **string rows** and test only two possible
-top-to-bottom row orders (standard-string order or its reverse).  The visual
-row choice and the authoritative MIDI pitch determine an exact playable
-`(string, fret)` candidate: the fret is derived as
-`pitch_midi - open_string_pitch`, never inferred from an EFA cell coordinate.
+Visual mode always transcribes audio first. MIDI pitch and onset timing remain
+authoritative, except for strong acoustic attacks or chord bass notes that the
+model missed. YOLO fretboard masks, EFA (`rectify_fretboard`), and MediaPipe Hands
+extract fingertip positions. Without calibration, the visual path tests two
+possible top-to-bottom string-row orders. With calibration, a tracked board
+and measured fret wires identify a fingertip's numbered fret; audio pitch
+then identifies the playable string. The fingertip row is a weak tie-break
+because its image location can differ from the pressed string. The fret is
+derived as `pitch_midi - open_string_pitch`, never copied from an EFA cell.
 The existing whole-chord, unique-string dynamic program then ranks those exact
 candidates. The normal outputs are joined by `audio_tablature.txt` (the
 unchanged audio-only baseline), `visual_diagnostics.json`, and
@@ -191,7 +193,11 @@ string, a numbered wire at the top string, that wire at the bottom string, and
 the nut at the bottom string, in that order. Set `far_fret` to the numbered
 wire (1–24), `top_string` to 6 for low E or 1 for high E, and `reference_frame`
 to the video frame used for those corners (default 0). An optional `image_size`
-is `[width, height]`. For example:
+is `[width, height]`. Optional `fret_wire_points` records contain numbered wire
+centers in that reference frame. Measuring several wires is recommended:
+apparent string spacing changes along a real neck, so an equal-tempered formula
+applied to a four-corner warp can assign a fingertip to the wrong fret. For
+example:
 
 ```json
 {
@@ -199,7 +205,11 @@ is `[width, height]`. For example:
   "far_fret": 12,
   "top_string": 6,
   "reference_frame": 0,
-  "image_size": [1920, 1080]
+  "image_size": [1920, 1080],
+  "fret_wire_points": [
+    {"fret": 5, "point": [1280, 770]},
+    {"fret": 12, "point": [935, 710]}
+  ]
 }
 ```
 
@@ -210,7 +220,7 @@ The calibration must use standard tuning. The pipeline tracks its board into
 each sampled frame using optical flow for small moves and feature matching for
 larger jumps. A nearby accepted frame can bridge a short tracking failure.
 The tracked board maps fingertips to numbered fret regions, and requires a
-visual contact to match both the string row and the MIDI-implied fret. Contacts
+visual contact to match the MIDI-implied fret. Contacts
 too close to a fret wire or from a frame whose board cannot be tracked are
 discarded. If no usable visual assignment remains, the final TAB falls back to
 the audio-only output.
@@ -236,10 +246,20 @@ ffmpeg -y -i videos/stairway-intro.webm -t 15 -map 0:v:0 -map 0:a:0 \
   -c:a aac -b:a 160k videos/stairway-intro-short.mp4
 uv run --python 3.10 --extra transcription --extra visual -- \
   python -m main.audio.video_to_score videos/stairway-intro-short.mp4 \
-  --model yourmt3 --visual --output-dir output/stairway-intro-short --overwrite
+  --model yourmt3 --visual \
+  --visual-calibration research/stairway-short-calibration.json \
+  --output-dir output/stairway-intro-short --overwrite
+uv run --python 3.10 --extra transcription --extra visual -- \
+  python -m scripts.evaluate_stairway_short
 ```
 
-Open `output/stairway-intro-short/visual_overlay.mp4` beside the two TAB files.
+The included calibration uses video frame 105 and measured wires 1–12. The
+evaluation compares saved MIDI and final positions with the bottom score
+overlay, using the ground-truth file in `research/`. The verified short-clip
+run matches **36/36** string/fret notes, with no missing or extra MIDI pitches;
+30 final notes have exact visual support. Ground truth is used only by this
+evaluation script. Open `output/stairway-intro-short/visual_overlay.mp4` beside
+the two TAB files for a visual check.
 
 The bundled YOLO checkpoint (`main/models/fretboard/yolo_weights_best.pt`) and MediaPipe
 Tasks model (`main/models/hands/hand_landmarker.task`) are repository-relative defaults.

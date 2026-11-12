@@ -1,0 +1,23 @@
+{
+  "corners": [[1761, 318], [946, 374], [946, 507], [1761, 418]],
+  "far_fret": 12,
+  "top_string": 6,
+  "tuning": [64, 59, 55, 50, 45, 40],
+  "image_size": [1920, 1080],
+  "reference_frame": 105,
+  "fret_wire_points": [
+    {"fret": 1, "point": [1645, 397]},
+    {"fret": 2, "point": [1545, 403]},
+    {"fret": 3, "point": [1450, 408]},
+    {"fret": 4, "point": [1368, 413]},
+    {"fret": 5, "point": [1293, 417]},
+    {"fret": 6, "point": [1225, 421]},
+    {"fret": 7, "point": [1160, 425]},
+    {"fret": 8, "point": [1098, 428]},
+    {"fret": 9, "point": [1040, 431]},
+    {"fret": 10, "point": [987, 434]},
+    {"fret": 11, "point": [935, 437]},
+    {"fret": 12, "point": [887, 440]}
+  ],
+  "provenance": "Manually measured from visible fret wires and inlays in video frame 105 (3.5 s); measurements use video imagery only, not the printed TAB. Mid-board wire centers are approximate and should be verified against tracking overlays."
+}

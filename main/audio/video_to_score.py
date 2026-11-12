@@ -224,6 +224,77 @@ def transcribe_audio(
     midi.save(str(midi_path))
 
 
+def recover_missing_onsets(audio: np.ndarray, midi_path: Path) -> list[dict[str, float | int]]:
+    """Add isolated, strong acoustic attacks omitted by the transcription model.
+
+    A polyphonic model can miss a rearticulated note while previous notes ring,
+    or omit a low fundamental from a chord it otherwise detected. Candidates
+    need a stable harmonic pitch and strong spectral novelty; higher pitches
+    at an existing chord onset are rejected as likely partials.
+    """
+    if not isinstance(audio, np.ndarray) or audio.size == 0:
+        return []
+
+    import pretty_midi
+
+    from main.audio.audio_fusion import detect_onsets
+
+    midi = pretty_midi.PrettyMIDI(str(midi_path))
+    instruments = [instrument for instrument in midi.instruments if not instrument.is_drum]
+    if not instruments:
+        return []
+    existing = sorted(note.start for instrument in instruments for note in instrument.notes)
+    existing_notes = [note for instrument in instruments for note in instrument.notes]
+    recovered: list[dict[str, float | int]] = []
+    for onset in detect_onsets(audio, SAMPLE_RATE, min_interval_sec=0.14):
+        if onset.pitch_midi is None:
+            continue
+        nearby_notes = [
+            note for note in existing_notes
+            if abs(onset.time_sec - note.start) < 0.12
+        ]
+        if any(note.pitch == onset.pitch_midi for note in nearby_notes):
+            continue
+        if nearby_notes:
+            # A strong low fundamental at a chord attack can reveal a bass
+            # note that a polyphonic model omitted while finding upper notes.
+            if (
+                onset.pitch_midi >= min(note.pitch for note in nearby_notes)
+                or onset.pitch_confidence < 0.54
+                or onset.strength < 0.65
+            ):
+                continue
+        elif (
+            onset.pitch_confidence < 0.57
+            or onset.strength < 0.30
+            or any(abs(onset.time_sec - time) < 0.28 for time in existing)
+        ):
+            continue
+        following = [time for time in existing if time > onset.time_sec + 0.12]
+        next_time = min(following) if following else onset.time_sec + 0.35
+        end = min(onset.time_sec + 0.35, next_time - 0.02)
+        if end - onset.time_sec < 0.12:
+            continue
+        recovered_note = pretty_midi.Note(
+            velocity=80,
+            pitch=int(onset.pitch_midi),
+            start=float(onset.time_sec),
+            end=float(end),
+        )
+        instruments[0].notes.append(recovered_note)
+        existing_notes.append(recovered_note)
+        existing.append(float(onset.time_sec))
+        recovered.append({
+            "onset_sec": float(onset.time_sec),
+            "pitch_midi": int(onset.pitch_midi),
+            "pitch_confidence": float(onset.pitch_confidence),
+            "strength": float(onset.strength),
+        })
+    if recovered:
+        midi.write(str(midi_path))
+    return recovered
+
+
 def write_tablature(
     midi_path: Path,
     tablature_path: Path,
@@ -633,6 +704,9 @@ def run(
         model_name=model_name,
         device=device,
     )
+    recovered_onsets = recover_missing_onsets(audio, outputs["MIDI"])
+    if recovered_onsets:
+        print(f"Recovered {len(recovered_onsets)} strong acoustic onset(s) omitted by {model_name}.")
     print("Converting MIDI to ASCII tablature...")
     if not visual_enabled:
         # Preserve the existing audio-only call path and output bytes exactly.
@@ -747,6 +821,7 @@ def run(
                 likelihoods,
                 accepted=accepted,
             )
+        diagnostics["audio_recovered_onsets"] = recovered_onsets
         _write_visual_diagnostics(outputs["visual diagnostics"], diagnostics)
         if require_visual and not accepted:
             raise PipelineError(f"--require-visual: {diagnostics.get('reason', fallback_reason)}")

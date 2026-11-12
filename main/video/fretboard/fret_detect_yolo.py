@@ -21,6 +21,8 @@ import numpy as np
 import cv2
 from PIL import Image
 
+from main.video.fretboard.board_geometry import _significant_mask
+
 # ── CONFIG ──
 DEFAULT_WEIGHTS = str(Path(__file__).resolve().parents[2] / "models" / "fretboard" / "yolo_weights_best.pt")
 YOLO_CONF_THRESH = 0.25
@@ -59,19 +61,19 @@ def predict_mask(model, img_pil, conf=YOLO_CONF_THRESH):
 
 
 def _clean_mask(mask, ks=5):
-    """Morphological cleanup: close, open, keep largest component."""
+    """Clean noise while retaining aligned board pieces split by a hand.
+
+    YOLO can return the two visible sides of an occluded neck as separate
+    instances. Keeping only the largest component silently deletes the nut
+    or body side and makes all subsequent board coordinates unreliable.
+    """
     if mask.max() <= 1:
         mask = (mask * 255).astype(np.uint8)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ks, ks))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
-    nl, lab, stats, _ = cv2.connectedComponentsWithStats(
-        (mask > 0).astype(np.uint8), connectivity=8
-    )
-    if nl <= 1:
-        return (mask > 0).astype(np.uint8) * 255
-    largest = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
-    return (lab == largest).astype(np.uint8) * 255
+    selected = _significant_mask((mask > 0).astype(np.uint8))
+    return selected * 255 if selected is not None else np.zeros_like(mask)
 
 
 # ═══════════════════════════════════════
@@ -102,14 +104,15 @@ def _pca_corners(mask):
     vals, vecs = np.linalg.eig(np.cov(c.T))
     idx = np.argsort(vals)[::-1]
     maj, mnr = vecs[:, idx[0]], vecs[:, idx[1]]
-    u, v = c @ maj, c @ mnr
+    u = np.einsum("ij,j->i", c, maj)
+    v = np.einsum("ij,j->i", c, mnr)
     um, uM = u.min(), u.max()
     mg = (uM - um) * 0.1
     wmin = np.std(v[u < um + mg]) if np.any(u < um + mg) else 1e9
     wmax = np.std(v[u > uM - mg]) if np.any(u > uM - mg) else 1e9
     if wmax < wmin:
         maj = -maj
-        u = c @ maj
+        u = np.einsum("ij,j->i", c, maj)
         um, uM = u.min(), u.max()
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -118,7 +121,7 @@ def _pca_corners(mask):
     c_max = max(contours, key=cv2.contourArea)
     c_pts = c_max.reshape(-1, 2).astype(np.float32)
 
-    c_v = (c_pts - mean) @ mnr
+    c_v = np.einsum("ij,j->i", c_pts - mean, mnr)
     top_mask = c_v > 0
     bot_mask = c_v <= 0
     top_pts = c_pts[top_mask]

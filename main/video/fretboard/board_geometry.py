@@ -69,8 +69,10 @@ def _significant_mask(mask: np.ndarray) -> np.ndarray | None:
     if axes is None:
         return None
     origin, longitudinal, across = axes
-    ref_u = (reference - origin) @ longitudinal
-    ref_v = (reference - origin) @ across
+    # NumPy's accelerated matmul on some macOS builds sets spurious floating
+    # point flags for these finite, tall 2D projections. Einsum is equivalent.
+    ref_u = np.einsum("ij,j->i", reference - origin, longitudinal)
+    ref_v = np.einsum("ij,j->i", reference - origin, across)
     u_min, u_max = np.percentile(ref_u, [0.5, 99.5])
     v_min, v_max = np.percentile(ref_v, [1.0, 99.0])
     ref_width = max(float(v_max - v_min), 2.0)
@@ -87,9 +89,10 @@ def _significant_mask(mask: np.ndarray) -> np.ndarray | None:
             [[x, y], [x + width, y], [x + width, y + height], [x, y + height]],
             dtype=np.float64,
         )
-        projected = (comp_corners - origin) @ np.column_stack((longitudinal, across))
+        projected = np.einsum("ij,jk->ik", comp_corners - origin,
+                              np.column_stack((longitudinal, across)))
         comp_u_min, comp_u_max = projected[:, 0].min(), projected[:, 0].max()
-        comp_v = (centers[label] - origin) @ across
+        comp_v = float(np.dot(centers[label] - origin, across))
         gap = max(u_min - comp_u_max, comp_u_min - u_max, 0.0)
         if (
             abs(comp_v - ref_v_center) <= 1.25 * ref_width
@@ -229,7 +232,8 @@ def estimate_board_corners(mask: np.ndarray) -> np.ndarray | None:
         poly = cv2.approxPolyDP(hull, fraction * perimeter, True).reshape(-1, 2)
         if len(poly) != 4:
             continue
-        uv = (poly - origin) @ np.column_stack((longitudinal, across))
+        uv = np.einsum("ij,jk->ik", poly - origin,
+                       np.column_stack((longitudinal, across)))
         start = np.argsort(uv[:, 0])[:2]
         end = np.argsort(uv[:, 0])[2:]
         start = start[np.argsort(uv[start, 1])]
@@ -259,8 +263,9 @@ def estimate_board_corners(mask: np.ndarray) -> np.ndarray | None:
     else:
         fit_points = points
 
-    projected = (points - origin) @ np.column_stack((longitudinal, across))
-    fit_projected = (fit_points - origin) @ np.column_stack((longitudinal, across))
+    axes_matrix = np.column_stack((longitudinal, across))
+    projected = np.einsum("ij,jk->ik", points - origin, axes_matrix)
+    fit_projected = np.einsum("ij,jk->ik", fit_points - origin, axes_matrix)
     u, v = projected[:, 0], projected[:, 1]
     fit_u, fit_v = fit_projected[:, 0], fit_projected[:, 1]
     length = float(np.ptp(u))

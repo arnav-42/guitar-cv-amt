@@ -33,6 +33,11 @@ class BoardCalibration:
     top_string: int = 6
     tuning: tuple = STANDARD_TUNING
     image_size: tuple | None = None
+    # Optional observed wire centers in the reference frame: (fret, (x, y)).
+    # The quadrilateral still supplies the two-dimensional board transform;
+    # these observations correct its longitudinal scale when apparent string
+    # taper is not a faithful perspective cue.
+    fret_wire_points: tuple = ()
 
     def __post_init__(self):
         points = np.asarray(self.corners, dtype=np.float32)
@@ -48,18 +53,36 @@ class BoardCalibration:
             raise ValueError("tuning must contain six MIDI integers in string 1..6 order.")
         if self.image_size is not None and (len(self.image_size) != 2 or any(v < 2 for v in self.image_size)):
             raise ValueError("image_size must be [width, height].")
+        if self.fret_wire_points:
+            try:
+                frets = [f for f, _ in self.fret_wire_points]
+                points = np.asarray([p for _, p in self.fret_wire_points], dtype=np.float32)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("fret_wire_points need (fret, (x, y)) records.") from exc
+            if (points.shape != (len(frets), 2) or not np.isfinite(points).all()
+                    or any(type(f) is not int or not 1 <= f <= 24 for f in frets)
+                    or frets != sorted(set(frets))):
+                raise ValueError("fret_wire_points need unique ascending frets 1..24 and finite image points.")
+            measured_x = self.image_to_board(points)[:, 0]
+            if not np.isfinite(measured_x).all() or measured_x[0] <= 0 or np.any(np.diff(measured_x) <= 0):
+                raise ValueError("Observed fret wires must advance monotonically from the nut.")
 
     @classmethod
     def from_dict(cls, data):
+        wires = tuple((entry["fret"], tuple(entry["point"]))
+                      for entry in data.get("fret_wire_points", ()))
         return cls(tuple(tuple(p) for p in data["corners"]), data.get("far_fret", 12),
                    data.get("top_string", 6), tuple(data.get("tuning", STANDARD_TUNING)),
-                   tuple(data["image_size"]) if "image_size" in data else None)
+                   tuple(data["image_size"]) if "image_size" in data else None, wires)
 
     def to_dict(self):
         data = dict(corners=self.corners, far_fret=self.far_fret,
                     top_string=self.top_string, tuning=self.tuning)
         if self.image_size is not None:
             data["image_size"] = self.image_size
+        if self.fret_wire_points:
+            data["fret_wire_points"] = [dict(fret=fret, point=list(point))
+                                        for fret, point in self.fret_wire_points]
         return data
 
     @property
@@ -74,13 +97,41 @@ class BoardCalibration:
         return cv2.perspectiveTransform(np.float32(points).reshape(1, -1, 2), np.linalg.inv(self.transform))[0]
 
     def fret_x(self, fret):
+        if self.fret_wire_points:
+            frets, xs = self._fret_wire_coordinates()
+            return self._interpolate_with_extrapolation(float(fret), frets, xs)
         # Exact equal temperament, sharing the old audio helper's relationship.
         ratio = 2 ** (fret / 12)
         return (1 - 1 / ratio) / (1 - 2 ** (-self.far_fret / 12))
 
     def continuous_fret(self, x):
+        if self.fret_wire_points:
+            frets, xs = self._fret_wire_coordinates()
+            return self._interpolate_with_extrapolation(float(x), xs, frets)
         remaining = 1 - float(x) * (1 - 2 ** (-self.far_fret / 12))
         return -12 * math.log2(remaining) if remaining > 0 else None
+
+    def _fret_wire_coordinates(self):
+        points = [point for _, point in self.fret_wire_points]
+        measured_x = self.image_to_board(points)[:, 0]
+        frets = np.asarray([0, *(f for f, _ in self.fret_wire_points)], dtype=float)
+        xs = np.asarray([0., *map(float, measured_x)], dtype=float)
+        return frets, xs
+
+    @staticmethod
+    def _interpolate_with_extrapolation(value, source, target):
+        if value <= source[0]:
+            i = 0
+        elif value >= source[-1]:
+            i = len(source) - 2
+        else:
+            i = int(np.searchsorted(source, value)) - 1
+        return float(target[i] + (value - source[i]) *
+                     (target[i + 1] - target[i]) / (source[i + 1] - source[i]))
+
+    @property
+    def visible_x_max(self):
+        return max(1.01, self.fret_x(self.far_fret) + .01) if self.fret_wire_points else 1.01
 
     def string_y(self, string):
         return (6 - string) / 5 if self.top_string == 6 else (string - 1) / 5
@@ -127,7 +178,14 @@ def track_calibration(reference, image, calibration):
         if not .65 < abs(area / original_area) < 1.5:
             return None
         try:
-            board = replace(calibration, corners=tuple(tuple(map(float, p)) for p in corners))
+            wires = calibration.fret_wire_points
+            if wires:
+                points = np.float32([point for _, point in wires])[None]
+                moved_wires = cv2.perspectiveTransform(points, homography)[0]
+                wires = tuple((fret, tuple(map(float, point)))
+                              for (fret, _), point in zip(wires, moved_wires))
+            board = replace(calibration, corners=tuple(tuple(map(float, p)) for p in corners),
+                            fret_wire_points=wires)
         except ValueError:
             return None
         return board, {"status": "tracked", "method": method, "inliers": int(inlier_count)}
@@ -195,8 +253,12 @@ def anchor_to_nut(calibration, ends):
         a, b = b, a
     angle = math.atan2(*(b - a)[::-1]) - math.atan2(*(body - nut)[::-1])
     c, s = math.cos(angle), math.sin(angle)
-    moved = (corners - nut) @ np.array([[c, s], [-s, c]]) + a
-    return replace(calibration, corners=tuple(tuple(map(float, p)) for p in moved))
+    rotation = np.array([[c, s], [-s, c]])
+    moved = (corners - nut) @ rotation + a
+    wires = tuple((fret, tuple(map(float, (np.asarray(point) - nut) @ rotation + a)))
+                  for fret, point in calibration.fret_wire_points)
+    return replace(calibration, corners=tuple(tuple(map(float, p)) for p in moved),
+                   fret_wire_points=wires)
 
 
 def locate_board(reference, image, calibration, ends=None, *, nut_tolerance=.35):
@@ -274,7 +336,7 @@ def fingertip_regions(tips, calibration):
     for tip in tips:
         x, y = map(float, calibration.image_to_board([tip["image_point"]])[0])
         # Keep near-board fingertips; discard the picking hand and off-board tips.
-        if not -.02 <= x <= 1.02 or not -.65 <= y <= 1.65:
+        if not -.02 <= x <= calibration.visible_x_max or not -.65 <= y <= 1.65:
             continue
         fret = calibration.continuous_fret(x)
         if fret is None:

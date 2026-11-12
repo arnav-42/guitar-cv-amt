@@ -86,7 +86,7 @@ def chain_point(points, n):
 def point_fret(board_point, calibration, settings):
     """Paper eq. (3) on our board: body-side wire, or None when off the board."""
     x, y = map(float, board_point)
-    if not 0 < x <= 1.01 or not -settings.y_margin <= y <= 1 + settings.y_margin:
+    if not 0 < x <= calibration.visible_x_max or not -settings.y_margin <= y <= 1 + settings.y_margin:
         return None, 0.
     continuous = calibration.continuous_fret(x)
     if continuous is None:
@@ -100,7 +100,8 @@ def point_fret(board_point, calibration, settings):
 
 def is_barre(points, board_points, calibration):
     """Index TIP/DIP/PIP on the board and roughly parallel to the frets."""
-    inside = sum(0 < x <= 1.01 and -.05 <= y <= 1.05 for x, y in board_points[:3])
+    inside = sum(0 < x <= calibration.visible_x_max and -.05 <= y <= 1.05
+                 for x, y in board_points[:3])
     corners = np.asarray(calibration.corners, float)
     along = corners[1] - corners[0]
     axis = points[0] - points[2]
@@ -324,23 +325,28 @@ def note_events(notes, frames, settings):
 def observe_clip(dataset, clip, calibration, reference, detector, settings, cache_dir):
     """Track the board and detect hands once per frame; cached as JSON."""
     cache = cache_dir / f"observations_{clip}.json"
-    stored = json.loads(cache.read_text()) if cache.exists() else {}
+    calibration_key = json.loads(json.dumps(calibration.to_dict()))
+    cached = json.loads(cache.read_text()) if cache.exists() else {}
+    stored = cached.get("frames", {}) if cached.get("calibration") == calibration_key else {}
     frames = []
     for record in [r for r in dataset.records if r.clip_id == clip and r.benchmark_eligible]:
         key = str(record.frame_index)
-        if key not in stored:
+        if key not in stored or (calibration.fret_wire_points and "board" not in stored[key]):
             image = np.asarray(Image.open(dataset.root / record.frame_path).convert("RGB"))
             board, tracking = track_calibration(reference, image, calibration)
             hands = detector.detect_hands(image, board) if board else []
-            stored[key] = dict(corners=board.corners if board else None, tracking=tracking,
+            stored[key] = dict(board=board.to_dict() if board else None, tracking=tracking,
                                hands=[dict(h, points=h["points"].tolist()) for h in hands])
         entry = stored[key]
-        board = (BoardCalibration(tuple(map(tuple, entry["corners"])), calibration.far_fret,
-                                  calibration.top_string, calibration.tuning) if entry["corners"] else None)
+        if "board" in entry:
+            board = BoardCalibration.from_dict(entry["board"]) if entry["board"] else None
+        else:  # Older no-anchor caches serialized only corners.
+            board = (BoardCalibration(tuple(map(tuple, entry["corners"])), calibration.far_fret,
+                                      calibration.top_string, calibration.tuning) if entry["corners"] else None)
         hands = [dict(h, points=np.asarray(h["points"])) for h in entry["hands"]]
         frames.append(dict(record=record, time=record.timestamp, calibration=board,
                            observation=frame_observation(hands, board, settings) if board else None))
-    cache.write_text(json.dumps(stored))
+    cache.write_text(json.dumps(dict(calibration=calibration_key, frames=stored)))
     return frames
 
 

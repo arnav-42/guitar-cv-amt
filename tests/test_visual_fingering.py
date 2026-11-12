@@ -156,6 +156,21 @@ def test_fingertip_maps_to_calibrated_fret_region_and_rejects_wire_boundary():
         calibration=board,
     ) is None
 
+
+def test_calibrated_contact_uses_board_rows_without_atlas():
+    from main.video.fretboard.audio_visual_fusion import BoardCalibration
+
+    board = BoardCalibration(((0, 0), (100, 0), (100, 100), (0, 100)))
+    point = lambda x, y: types.SimpleNamespace(x=x, y=y)
+    contact = _relative_contact(
+        None, point(0.47, 0.3), point(0.47, 0.3), (100, 100), None, np,
+        finger="index", confidence=1.0, time_sec=0.0, frame_index=0,
+        calibration=board,
+    )
+    assert contact is not None
+    assert contact.row == pytest.approx(1.5)
+    assert contact.fret_region == 5
+
 def test_chord_match_uses_each_contact_at_most_once():
     notes = (_note(0, 0.0, 60), _note(1, 0.0, 64))
     event = VisualEvent(
