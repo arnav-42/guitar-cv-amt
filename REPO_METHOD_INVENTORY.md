@@ -317,3 +317,31 @@ YOLO fretboard mask
 The old evaluator, notebooks, demos, and `main/deprecated/` code remain useful
 for comparison and research history, but they are not all part of one unified
 production pipeline.
+
+## 11. Reproducible calibrated audio/video pipeline
+
+`scripts/transcribe_av.py` composes the existing implementations into a local
+video workflow with mandatory visual evidence:
+
+```text
+video audio -> YourMT3 -> spectral-flux/harmonic onset recovery -> timed pitches
+video frames -> YOLO/EFA + MediaPipe + calibrated LK/ORB tracking -> fret contacts
+timed pitches + fret contacts -> whole-chord unique-string DP -> TAB + event JSON
+```
+
+Use measured image-only fret calibration to anchor absolute fret numbers. EFA
+can remain coarse on occluded frames; accepted tracked calibration supplies
+the absolute geometry in those frames. The command requires accepted visual
+support and saves the audio-only baseline, diagnostic video, timed assignments,
+input hashes, and visual contribution counts.
+
+`main/evaluation/tab_ground_truth.py` separately compares saved outputs to an
+ASCII reference, including simultaneous grouping and repeated attacks. It
+does not supply notes or fingerings to inference. See the README command and
+`research/stairway_av_verification.md` for the measured short-clip result.
+
+`scripts/render_av_demo.py` renders a presentation overlay from the same
+transcription JSON and video-only board calibration. It tracks the measured
+board through the video, marks final assignments at audio attacks, and shows
+tracking failures without drawing a grid. It intentionally omits unstable raw
+per-frame atlas proposals; these remain available in `visual_diagnostics.json`.

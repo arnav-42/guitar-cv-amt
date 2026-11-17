@@ -77,6 +77,43 @@ models, assets, and frozen deprecated experiments.
 
 ## Transcribe a performance video
 
+For a local video with measured fretboard calibration, the mandatory
+audio/video entry point is:
+
+```bash
+.venv/bin/python -m scripts.transcribe_av videos/stairway-intro-short.mp4 \
+  --calibration research/stairway-short-calibration.json \
+  --output-dir output/stairway-verified
+.venv/bin/python -m main.evaluation.tab_ground_truth \
+  --truth videos/ground-truth-stairway-intro-short.txt \
+  --prediction output/stairway-verified/transcription.json \
+  --output output/stairway-verified/evaluation.json
+```
+
+Install the `transcription` and `visual` extras described below and use Python
+3.10. Add `--overwrite` to replace an existing run. This command defaults to
+YourMT3, recovers strong missed acoustic attacks, then combines YOLO/EFA,
+MediaPipe, tracked measured fret wires, and whole-chord string assignment.
+It fails if visual evidence is unavailable. `transcription.json` records
+source/calibration hashes, every timed string/fret assignment, evidence counts,
+and the positions changed by video. The calibration is an image-only geometry
+input; it must correspond to the supplied video.
+
+The reference is read **only by the separate evaluator**, after inference.
+Evaluation requires exactly the same ordered simultaneous string/fret events:
+missing notes, extra notes, wrong strings, and different chord grouping fail
+with exit code 1. Whitespace, bar layout, note durations, and rests are not
+scored; `text_exact` is a separate layout comparison for TXT predictions.
+See [the verification record](research/stairway_av_verification.md) for the
+provided short clip and reference corrections.
+
+`visual_overlay.mp4` is a presentation video: it draws the measured fretboard
+tracked through the clip, then highlights final string/fret assignments at
+their audio attacks. It omits unstable raw YOLO/EFA frame proposals and covers
+the source video's printed tab. Frames with failed tracking are labeled and
+show no inferred fretboard lines. `visual_diagnostics.json` retains the raw
+frame detector details for debugging.
+
 [`main/audio/video_to_score.py`](main/audio/video_to_score.py) accepts a local video
 or a single YouTube video URL, transcribes its audio with MT3-Infer, and saves a
 WAV, MIDI, six-line ASCII guitar tablature, and editable MusicXML score. FFmpeg
@@ -171,9 +208,10 @@ derived as `pitch_midi - open_string_pitch`, never copied from an EFA cell.
 The existing whole-chord, unique-string dynamic program then ranks those exact
 candidates. The normal outputs are joined by `audio_tablature.txt` (the
 unchanged audio-only baseline), `visual_diagnostics.json`, and
-`visual_overlay.mp4`. The overlay keeps the source audio and timeline while
-sampling visual detections at 5 fps. It draws the observed fret/string grid
-and MediaPipe fingertips, including when the grid is unavailable. Only accepted
+`visual_overlay.mp4`. The general `video_to_score` overlay is a diagnostic
+view of raw detections. The calibrated `scripts.transcribe_av` entry point
+replaces it with a presentation view that draws the tracked calibration and
+highlights final assignments at audio attacks. Only accepted
 visual evidence may change `tablature.txt`; acceptance also requires the final
 whole-chord assignment to select at least one exact position with positive
 visual evidence.
@@ -255,8 +293,9 @@ uv run --python 3.10 --extra transcription --extra visual -- \
 
 The included calibration uses video frame 105 and measured wires 1–12. The
 evaluation compares saved MIDI and final positions with the bottom score
-overlay, using the ground-truth file in `research/`. The verified short-clip
-run matches **36/36** string/fret notes, with no missing or extra MIDI pitches;
+overlay, using the ground-truth file in `research/`. The earlier short-clip
+run matches **36/36** string/fret notes against that older JSON reference,
+with no missing or extra MIDI pitches;
 30 final notes have exact visual support. Ground truth is used only by this
 evaluation script. Open `output/stairway-intro-short/visual_overlay.mp4` beside
 the two TAB files for a visual check.
